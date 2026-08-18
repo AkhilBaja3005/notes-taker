@@ -1,5 +1,7 @@
 import os
 import sys
+import io
+import contextlib
 import datetime
 from pathlib import Path
 from dotenv import load_dotenv
@@ -83,7 +85,8 @@ def process_file(file_path_str: str, course_name: str, topic_name: str, lecture_
         text_content = extract_text_from_docx(file_path)
         if not text_content.strip():
             print(f"[*] Uploading {file_path.name} to Gemini File API...")
-            uploaded_remote_file = client.files.upload(file=str(file_path))
+            with contextlib.redirect_stderr(io.StringIO()):
+                uploaded_remote_file = client.files.upload(file=str(file_path))
             contents_payload = [uploaded_remote_file, prompt]
         else:
             contents_payload = [f"Document Content for {file_path.name}:\n\n{text_content}", prompt]
@@ -92,7 +95,8 @@ def process_file(file_path_str: str, course_name: str, topic_name: str, lecture_
         contents_payload = [f"Document Content for {file_path.name}:\n\n{text_content}", prompt]
     else:
         print(f"[*] Uploading {file_path.name} to Gemini File API...")
-        uploaded_remote_file = client.files.upload(file=str(file_path))
+        with contextlib.redirect_stderr(io.StringIO()):
+            uploaded_remote_file = client.files.upload(file=str(file_path))
         contents_payload = [uploaded_remote_file, prompt]
 
     candidate_models = [model] + [m for m in FALLBACK_MODELS if m != model]
@@ -102,10 +106,11 @@ def process_file(file_path_str: str, course_name: str, topic_name: str, lecture_
     for candidate in candidate_models:
         try:
             print(f"[*] Processing material through Gemini ({candidate})...")
-            response = client.models.generate_content(
-                model=candidate,
-                contents=contents_payload
-            )
+            with contextlib.redirect_stderr(io.StringIO()):
+                response = client.models.generate_content(
+                    model=candidate,
+                    contents=contents_payload
+                )
             model = candidate
             break
         except Exception as err:
@@ -148,7 +153,8 @@ tags:
 
     if uploaded_remote_file:
         try:
-            client.files.delete(name=uploaded_remote_file.name)
+            with contextlib.redirect_stderr(io.StringIO()):
+                client.files.delete(name=uploaded_remote_file.name)
         except Exception as e:
             print(f"[!] Warning: Remote file deletion failed: {e}")
 

@@ -1,5 +1,8 @@
 import os
 import re
+import io
+import sys
+import contextlib
 import datetime
 from pathlib import Path
 import frontmatter
@@ -35,7 +38,6 @@ def clean_and_repair_latex(markdown_text: str) -> str:
     orphan_pattern = r"(?<!\\begin\{aligned\})(?:^|\n)([^\n\$]*?[a-zA-Z0-9_\(\)\{\}\^\\]+\s*&=\s*.*?)(\\end\{aligned\}\$\$)"
     def repl_orphan(m):
         content = m.group(1).strip()
-        # Clean any accidental leading $$
         content = re.sub(r"^\$\$", "", content).strip()
         return f"\n\n$$\n\\begin{{aligned}}\n{content}\n\\end{{aligned}}\n$$\n\n"
 
@@ -57,7 +59,7 @@ def clean_and_repair_latex(markdown_text: str) -> str:
     return text
 
 def generate_with_fallback(prompt: str, system_instruction: str = None, requested_model: str = None) -> str:
-    """Robust generator with automatic fallback across stable Gemini Flash models."""
+    """Robust generator with automatic fallback across stable Gemini Flash models and silent stderr."""
     if requested_model is None or requested_model == "gemini-3.7-flash":
         requested_model = DEFAULT_MODEL
 
@@ -72,11 +74,13 @@ def generate_with_fallback(prompt: str, system_instruction: str = None, requeste
                 
             config = types.GenerateContentConfig(**config_kwargs) if config_kwargs else None
 
-            response = client.models.generate_content(
-                model=model_name,
-                contents=prompt,
-                config=config
-            )
+            # Suppress SDK deprecation AFC stderr noise
+            with contextlib.redirect_stderr(io.StringIO()):
+                response = client.models.generate_content(
+                    model=model_name,
+                    contents=prompt,
+                    config=config
+                )
             return clean_and_repair_latex(response.text)
         except Exception as e:
             print(f"[!] Warning: Model {model_name} failed with: {e}. Retrying with next available model...")
