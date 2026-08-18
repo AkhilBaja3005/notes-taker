@@ -1,85 +1,153 @@
-# Autonomous Academic Lecture & Notes Assistant
+<div align="center">
 
-A production-ready, local-first / cloud-deployable academic assistant for graduate-level STEM coursework. It processes audio recordings, PDFs, Word docs, lecture slides, and notes via Google Gemini Flash models (`gemini-3.7-flash`, `gemini-3.6-flash`, `gemini-3.5-flash`, `gemini-3.0-flash`), generates structured Markdown notes with LaTeX math, and seamlessly syncs to **Obsidian on your Mac via Git**.
+# 🎓 Autonomous Academic Lecture & Notes Assistant
+**Production-ready, local-first & cloud-deployable AI study copilot for graduate-level STEM coursework.**
+
+[![Python](https://img.shields.io/badge/Python-3.11%2B%20%7C%203.12-blue?logo=python&logoColor=white)](https://www.python.org/)
+[![Google Gemini](https://img.shields.io/badge/Google%20GenAI-Gemini%20Flash-orange?logo=google&logoColor=white)](https://ai.google.dev/)
+[![Streamlit](https://img.shields.io/badge/Web%20UI-Streamlit-red?logo=streamlit&logoColor=white)](https://streamlit.io/)
+[![Telegram](https://img.shields.io/badge/Chat%20Bot-Telegram-blue?logo=telegram&logoColor=white)](https://telegram.org/)
+[![Obsidian](https://img.shields.io/badge/Vault-Obsidian%20Sync-purple?logo=obsidian&logoColor=white)](https://obsidian.md/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
+</div>
 
 ---
 
-## 🔄 Cloud-to-Mac Obsidian Git Sync Architecture
+## 📌 Overview
+
+The **Autonomous Academic Lecture Assistant** automates the entire lifecycle of lecture ingestion, transcription, structured academic synthesis, LaTeX mathematical derivation, exam preparation, and cross-device synchronization:
 
 ```text
-📱 Phone / Web UI ───► ☁️ Cloud Assistant Server
-                               │ (Generates Notes)
-                               ▼
-                       📂 ./lectures Repo
-                               │
-                               ▼ 1. Auto `git add`, `commit` & `push`
-                       🐙 Private GitHub Repo (e.g. `my-obsidian-notes`)
-                               │
-                               ▼ 2. Auto-pull / Sync
-                       💻 Your Mac (Obsidian Vault)
+               ┌──────────────────────────────────────────────┐
+               │    Audio Recording / PDF / Slides / Word     │
+               └──────────────────────┬───────────────────────┘
+                                      │
+           ┌──────────────────────────┼──────────────────────────┐
+           ▼                          ▼                          ▼
+┌─────────────────────┐    ┌─────────────────────┐    ┌─────────────────────┐
+│ 📁 ./incoming_audio │    │ 🤖 Telegram Bot     │    │ 💻 Streamlit Web UI │
+│ (Watcher Daemon)    │    │ (@note_taker_bot)   │    │ (Direct Upload)     │
+└──────────┬──────────┘    └──────────┬──────────┘    └──────────┬──────────┘
+           │                          │                          │
+           └──────────────────────────┼──────────────────────────┘
+                                      ▼
+                      ┌──────────────────────────────┐
+                      │    Gemini Flash Engine       │
+                      │ (Auto-fallback Architecture) │
+                      └──────────────┬───────────────┘
+                                     │ Generates structured Markdown & LaTeX
+                                     ▼
+                      ┌──────────────────────────────┐
+                      │   📚 Obsidian Vault Vault    │
+                      │      (./lectures/*.md)       │
+                      └──────────────┬───────────────┘
+                                     │
+           ┌─────────────────────────┴─────────────────────────┐
+           ▼                                                   ▼
+┌─────────────────────────────┐             ┌─────────────────────────────────────┐
+│    Obsidian on Your Mac     │             │        GitHub Vault Repository      │
+│  (Auto-sync via Git Engine) │             │  (my-obsidian-notes.git)            │
+└─────────────────────────────┘             └─────────────────────────────────────┘
 ```
 
 ---
 
-## 🛠️ Step-by-Step Obsidian Git Sync Setup
+## ✨ Key Features
 
-### Step 1: Create a Private GitHub Repository
-1. Go to GitHub and create a new **Private Repository** (e.g. `my-obsidian-vault`).
-
-### Step 2: Configure on your Cloud Server
-In your cloud deployment's `.env` file, enable Git sync:
-```env
-ENABLE_GIT_SYNC=true
-GIT_VAULT_REPO_URL=https://<GITHUB_TOKEN>@github.com/yourusername/my-obsidian-vault.git
-GIT_BRANCH=main
-```
-*(Every time a lecture or document is processed on the cloud, it automatically commits and pushes the new `.md` note to your private GitHub repo).*
-
-### Step 3: Configure Obsidian on your Mac
-1. Open Obsidian on your Mac.
-2. Clone your private repo into your preferred Obsidian directory:
-   ```bash
-   git clone git@github.com:yourusername/my-obsidian-vault.git ~/Documents/ObsidianVault
-   ```
-3. Open `~/Documents/ObsidianVault` as a vault in Obsidian.
-4. (Optional & Recommended) In Obsidian:
-   - Go to **Settings $\rightarrow$ Community Plugins $\rightarrow$ Browse**.
-   - Install and enable **"Obsidian Git"**.
-   - Set **"Vault backup interval"** to `5` minutes (it will automatically pull latest notes from GitHub in the background).
+- **Multi-Format Ingestion**: Supports `.m4a`, `.mp3`, `.wav`, `.aac`, `.ogg`, `.flac`, `.pdf`, `.docx`, `.doc`, `.pptx`, `.ppt`, `.txt`, `.md`.
+- **Obsidian Native Integration**: Automatically attaches YAML frontmatter, `[[Wikilinks]]`, `#course/...` and `#topic/...` tags, and `> [!WARNING]` callouts.
+- **Automated Git Sync Engine**: Commits and pushes notes to your remote GitHub vault automatically.
+- **Streamlit Web Dashboard**:
+  - Live Gemini Flash model selector.
+  - Multi-subject daily briefings.
+  - Date-filtered syllabus exam doubt solver & mock exam generator.
+- **Asynchronous Telegram Bot**:
+  - Send audio/PDFs on-the-go.
+  - Interactive `/menu` button interface.
+  - High-res LaTeX math image rendering via `/latex`.
+  - Smart paragraph chunking & full `.md` file attachments.
+- **Fault-Tolerant AI Engine**: Automatic multi-model fallback chain across `gemini-3.6-flash`, `gemini-3.5-flash`, `gemini-flash-latest`, and `gemini-3.1-flash-lite`.
 
 ---
 
-## 📁 Directory Structure
+## 📁 Repository Structure
 
 ```text
 .
-├── .env.example
-├── .env
-├── .gitignore
-├── requirements.txt
-├── README.md
-├── main.py                    # Unified runner for all services
-├── git_sync.py                # Automated Git synchronization engine for Obsidian
-├── incoming_audio/            # Watched folder for audio/documents
-├── lectures/                  # Structured markdown notes vault (Git synced)
-├── watcher.py                 # Multi-format file system watcher daemon
-├── ingest_audio.py            # Universal audio/doc ingestion engine
-├── core_engine.py             # Shared parsing, recap, and Q&A engine
-├── app.py                     # Streamlit web app
-└── bot.py                     # Telegram bot service
+├── .env.example               # Environment variables configuration template
+├── .gitignore                 # Standard Python, Obsidian, and IDE ignore rules
+├── Dockerfile                 # Container image specification
+├── LICENSE                    # MIT License
+├── README.md                  # Project documentation
+├── app.py                     # Streamlit web dashboard
+├── bot.py                     # Telegram bot service
+├── core_engine.py             # Shared reasoning, date filtering, and LaTeX repair
+├── docker-compose.yml         # Container orchestration configuration
+├── git_sync.py                # Automated Git synchronization engine
+├── incoming_audio/            # Watched folder for recordings/documents
+├── ingest_audio.py            # Universal audio and document ingestion pipeline
+├── lectures/                  # Generated structured Markdown study notes
+├── main.py                    # Unified multi-service launcher
+├── requirements.txt           # Pinned project dependencies
+└── watcher.py                 # File system watcher daemon
 ```
 
 ---
 
-## 💡 Usage
+## 🛠️ Quick Start
 
-### Start All Services
+### 1. Clone & Setup Virtual Environment
+
+```bash
+git clone https://github.com/AkhilBaja3005/notes-taker.git
+cd notes-taker
+
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+```
+
+### 2. Configure `.env`
+
+Copy `.env.example` to `.env` and fill in your credentials:
+
+```bash
+cp .env.example .env
+```
+
+```env
+GEMINI_API_KEY=your_gemini_api_key_here
+GEMINI_MODEL=gemini-3.6-flash
+TELEGRAM_BOT_TOKEN=your_telegram_bot_token_here
+ALLOWED_TELEGRAM_USER_IDS=
+WATCH_DIR=./incoming_audio
+LECTURES_DIR=./lectures
+
+# Obsidian Git Sync Configuration
+ENABLE_GIT_SYNC=true
+GIT_VAULT_REPO_URL=https://<GITHUB_PAT>@github.com/yourusername/my-obsidian-notes.git
+GIT_BRANCH=main
+```
+
+### 3. Launch All Services
 
 ```bash
 python main.py
 ```
 
-### Ingestion Methods
-1. **Telegram Bot**: Send audio/PDF/docx to [@abaja_note_taker_bot](https://t.me/abaja_note_taker_bot).
-2. **Streamlit Web UI**: Upload via the web dashboard.
-3. **Watcher Daemon**: Drop files into `./incoming_audio`.
+---
+
+## 🐳 Docker Deployment
+
+To run the entire assistant suite in Docker:
+
+```bash
+docker-compose up -d --build
+```
+
+---
+
+## 📄 License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.

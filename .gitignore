@@ -1,10 +1,33 @@
+# Environment & Secrets
 .env
-venv/
+
+# Python artifacts
 __pycache__/
-*.pyc
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+
+# Testing & Ingestion directories (keep folder with .gitkeep)
 incoming_audio/*
 !incoming_audio/.gitkeep
+test_samples/*
+!test_samples/.gitkeep
 
-# Obsidian internal cache in lectures
+# Obsidian internal vault caches
 lectures/.obsidian/
 .obsidian/
+
+# IDE / Editor configuration
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+
+# Agent skills symlinks
+.agents/
+.claude/
