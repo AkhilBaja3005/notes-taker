@@ -11,15 +11,18 @@ env/
 venv/
 ENV/
 
-# Testing & Ingestion directories (keep folder with .gitkeep)
+# Lecture study notes (Synced exclusively to my-obsidian-notes repo)
+lectures/*
+!lectures/.gitkeep
+lectures/.obsidian/
+.obsidian/
+
+# Ingestion & Test directories
 incoming_audio/*
 !incoming_audio/.gitkeep
 test_samples/*
 !test_samples/.gitkeep
-
-# Obsidian internal vault caches
-lectures/.obsidian/
-.obsidian/
+test_watcher_unit.py
 
 # IDE / Editor configuration
 .vscode/
