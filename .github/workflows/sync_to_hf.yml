@@ -1,0 +1,37 @@
+name: Sync to Hugging Face Spaces
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  sync-to-hub:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          lfs: true
+
+      - name: Push to Hugging Face Space
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          HF_SPACE_URL: ${{ secrets.HF_SPACE_URL }}
+        run: |
+          if [ -z "$HF_TOKEN" ] || [ -z "$HF_SPACE_URL" ]; then
+            echo "::error::HF_TOKEN and HF_SPACE_URL secrets must be configured in your GitHub repository."
+            exit 1
+          fi
+
+          # Configure Git credentials for Hugging Face
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          
+          # Extract clean HTTPS target with HF authentication token
+          CLEAN_URL=$(echo "$HF_SPACE_URL" | sed -E 's#https://([^@]+@)?#https://#')
+          AUTH_URL=$(echo "$CLEAN_URL" | sed -E "s#https://#https://user:${HF_TOKEN}@#")
+
+          echo "[*] Mirroring main branch to Hugging Face Space..."
+          git push "$AUTH_URL" main:main --force
