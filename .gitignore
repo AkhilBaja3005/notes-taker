@@ -4,3 +4,7 @@ __pycache__/
 *.pyc
 incoming_audio/*
 !incoming_audio/.gitkeep
+
+# Obsidian internal cache in lectures
+lectures/.obsidian/
+.obsidian/
