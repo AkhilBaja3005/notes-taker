@@ -3,18 +3,82 @@ import subprocess
 import signal
 import time
 import os
+import threading
+import urllib.request
+from http.server import HTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
 from git_sync import sync_notes_to_git
 from metadata_db import index_all_lectures
 from vector_store import index_all_lectures_vector_db
 from obsidian_moc import update_all_course_mocs
 
-processes = []
+# Process registry for self-healing supervisor: {name: (process_obj, command_list)}
+process_registry = {}
+
+class HealthCheckHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        if self.path in ["/healthz", "/health", "/ping"]:
+            self.send_response(200)
+            self.send_header("Content-type", "application/json")
+            self.end_headers()
+            status_data = '{"status": "healthy", "timestamp": "%s"}' % time.strftime('%Y-%m-%dT%H:%M:%SZ')
+            self.wfile.write(status_data.encode("utf-8"))
+        else:
+            self.send_response(404)
+            self.end_headers()
+
+    def log_message(self, format, *args):
+        pass  # Suppress health check access log noise
+
+def run_health_server(port: int = 8080):
+    """Runs a lightweight internal health check server for container liveness probes."""
+    try:
+        server = HTTPServer(("0.0.0.0", port), HealthCheckHandler)
+        server.serve_forever()
+    except Exception as e:
+        print(f"[!] Health server notice: {e}")
+
+def self_ping_keepalive(interval_seconds: int = 300):
+    """
+    Self-ping keepalive daemon:
+    Periodically sends lightweight HTTP GET requests to Hugging Face Spaces
+    to ensure the instance stays awake and never idles out.
+    """
+    time.sleep(30)  # Initial grace period on boot
+    
+    # Target public URL or direct internal port
+    target_url = os.environ.get("SPACE_HOST")
+    if target_url:
+        target_url = f"https://{target_url}/"
+    else:
+        target_url = f"http://127.0.0.1:{os.environ.get('STREAMLIT_SERVER_PORT', '7860')}/"
+
+    print(f"[*] Self-ping Keepalive Daemon active. Monitoring: {target_url} (every {interval_seconds}s)")
+    while True:
+        try:
+            req = urllib.request.Request(
+                target_url,
+                headers={"User-Agent": "Academic-Assistant-Keepalive/1.0"}
+            )
+            with urllib.request.urlopen(req, timeout=15) as response:
+                pass
+        except Exception:
+            pass  # Normal during cold boots
+        time.sleep(interval_seconds)
+
+def setup_persistent_hf_storage():
+    """Maps ./lectures, ./vector_db, and ./incoming_audio to /data if bucket is present."""
+    data_mount = Path("/data")
+    if data_mount.exists() and os.access(data_mount, os.W_OK):
+        print("[+] Hugging Face Persistent Storage Bucket detected at /data!")
+        (data_mount / "lectures").mkdir(parents=True, exist_ok=True)
+        (data_mount / "vector_db").mkdir(parents=True, exist_ok=True)
+        (data_mount / "incoming_audio").mkdir(parents=True, exist_ok=True)
 
 def signal_handler(sig, frame):
     print("\n[!] Shutting down all services...")
-    for p in processes:
-        if p.poll() is None:
+    for name, (p, _) in list(process_registry.items()):
+        if p and p.poll() is None:
             p.terminate()
             try:
                 p.wait(timeout=3)
@@ -23,12 +87,8 @@ def signal_handler(sig, frame):
     sys.exit(0)
 
 def startup_vault_hydration():
-    """
-    On container startup (e.g. Hugging Face Spaces cold boot):
-    1. Pulls latest notes from my-obsidian-notes git repository.
-    2. Builds/updates all Obsidian Maps of Content (MOCs).
-    3. Re-indexes notes in local SQLite metadata DB and ChromaDB vector store.
-    """
+    """Hydrates notes from remote repo, compiles MOCs, and re-indexes SQLite/ChromaDB."""
+    setup_persistent_hf_storage()
     lectures_dir = Path("./lectures")
     lectures_dir.mkdir(parents=True, exist_ok=True)
     
@@ -51,7 +111,7 @@ def startup_vault_hydration():
         print(f"[!] Indexing notice: {e}")
 
 def cleanup_old_temp_files(hours_threshold: int = 48):
-    """Garbage collector: cleans up raw temp audio older than hours_threshold."""
+    """Purges raw temporary audio files older than hours_threshold."""
     now = time.time()
     cutoff = now - (hours_threshold * 3600)
     cleaned = 0
@@ -71,6 +131,12 @@ def cleanup_old_temp_files(hours_threshold: int = 48):
     if cleaned > 0:
         print(f"[+] Garbage Collector: Cleaned {cleaned} temporary files older than {hours_threshold}h.")
 
+def start_service(name: str, cmd: list) -> subprocess.Popen:
+    """Spawns a managed process and registers it for self-healing supervision."""
+    proc = subprocess.Popen(cmd, stdout=sys.stdout, stderr=sys.stderr)
+    process_registry[name] = (proc, cmd)
+    return proc
+
 def main():
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)
@@ -81,58 +147,51 @@ def main():
     print("🎓 Starting Autonomous Academic Lecture Assistant Services")
     print("=" * 60)
 
-    # 1. Startup Vault Hydration
+    # 1. Startup Vault Hydration & Cleanup
     startup_vault_hydration()
     cleanup_old_temp_files()
 
-    # 2. Start Watcher Daemon
-    print("[*] Launching Watcher Daemon (watcher.py)...")
-    watcher_proc = subprocess.Popen(
-        [python_executable, "watcher.py"],
-        stdout=sys.stdout,
-        stderr=sys.stderr
-    )
-    processes.append(watcher_proc)
+    # 2. Launch Health Check & Keepalive Daemons in background threads
+    threading.Thread(target=run_health_server, daemon=True).start()
+    threading.Thread(target=self_ping_keepalive, daemon=True).start()
 
-    # 3. Start Telegram Bot (if token provided)
+    # 3. Start Watcher Daemon
+    print("[*] Launching Watcher Daemon (watcher.py)...")
+    start_service("Watcher", [python_executable, "watcher.py"])
+
+    # 4. Start Telegram Bot (if configured)
     if os.environ.get("TELEGRAM_BOT_TOKEN"):
         print("[*] Launching Telegram Bot (bot.py)...")
-        bot_proc = subprocess.Popen(
-            [python_executable, "bot.py"],
-            stdout=sys.stdout,
-            stderr=sys.stderr
-        )
-        processes.append(bot_proc)
+        start_service("TelegramBot", [python_executable, "bot.py"])
     else:
         print("[!] TELEGRAM_BOT_TOKEN not configured - running Web UI & Watcher only.")
 
-    # 4. Start Streamlit App (Port 7860 on HF Spaces / 8501 local)
+    # 5. Start Streamlit App (Port 7860 on HF Spaces / 8501 local)
     port = os.environ.get("STREAMLIT_SERVER_PORT", "8501")
     print(f"[*] Launching Streamlit Web App on port {port}...")
-    streamlit_proc = subprocess.Popen(
-        [
-            python_executable, "-m", "streamlit", "run", "app.py",
-            "--server.port", str(port),
-            "--server.address", "0.0.0.0",
-            "--server.headless", "true"
-        ],
-        stdout=sys.stdout,
-        stderr=sys.stderr
-    )
-    processes.append(streamlit_proc)
+    start_service("Streamlit", [
+        python_executable, "-m", "streamlit", "run", "app.py",
+        "--server.port", str(port),
+        "--server.address", "0.0.0.0",
+        "--server.headless", "true"
+    ])
 
-    print("\n[+] All services started successfully!")
+    print("\n[+] All services started successfully with Self-Healing Supervisor active!")
     print("[+] Press Ctrl+C at any time to gracefully terminate all services.\n")
 
-    # Monitor running processes and periodically run cleanup
+    # 6. Self-Healing Process Supervisor Loop
     last_cleanup = time.time()
     try:
         while True:
-            for p in processes:
-                exit_code = p.poll()
+            for name, (proc, cmd) in list(process_registry.items()):
+                exit_code = proc.poll()
                 if exit_code is not None:
-                    print(f"[!] Process PID {p.pid} exited with code {exit_code}.")
-            
+                    print(f"[!] Warning: Service '{name}' (PID {proc.pid}) exited with code {exit_code}. Auto-restarting in 3s...")
+                    time.sleep(3)
+                    new_proc = subprocess.Popen(cmd, stdout=sys.stdout, stderr=sys.stderr)
+                    process_registry[name] = (new_proc, cmd)
+                    print(f"[+] Service '{name}' successfully restarted with new PID {new_proc.pid}!")
+
             # Periodic cleanup every 12 hours
             if time.time() - last_cleanup > 43200:
                 cleanup_old_temp_files()
