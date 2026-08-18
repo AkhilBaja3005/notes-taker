@@ -17,12 +17,17 @@ lectures/*
 lectures/.obsidian/
 .obsidian/
 
+# Local databases and vector caches (Never commit runtime DB locks)
+metadata.db
+vector_db/
+
 # Ingestion & Test directories
 incoming_audio/*
 !incoming_audio/.gitkeep
 test_samples/*
 !test_samples/.gitkeep
-test_watcher_unit.py
+test_samples/optimized_audio/
+optimized_audio/
 
 # IDE / Editor configuration
 .vscode/
