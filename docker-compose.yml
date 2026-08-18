@@ -1,0 +1,14 @@
+version: '3.8'
+
+services:
+  lecture-assistant:
+    build: .
+    container_name: academic_lecture_assistant
+    restart: unless-stopped
+    env_file:
+      - .env
+    ports:
+      - "8501:8501"
+    volumes:
+      - ./lectures:/app/lectures
+      - ./incoming_audio:/app/incoming_audio
