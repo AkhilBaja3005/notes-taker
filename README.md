@@ -165,8 +165,8 @@ Space URL: **[https://huggingface.co/spaces/abaja/notes-taker](https://huggingfa
 
 In your Hugging Face Space settings, add the following secrets:
 - `GEMINI_API_KEY`: Your Gemini API Key
-- `TELEGRAM_BOT_TOKEN`: `8477573311:AAEi1AHDpwd57me52c3r9yB3MWKDKTCIWOo`
-- `GIT_VAULT_REPO_URL`: `https://<GITHUB_PAT>@github.com/AkhilBaja3005/my-obsidian-notes.git`
+- `TELEGRAM_BOT_TOKEN`: Your Telegram Bot Token (from @BotFather)
+- `GIT_VAULT_REPO_URL`: `https://<GITHUB_PAT>@github.com/yourusername/my-obsidian-notes.git`
 - `ENABLE_GIT_SYNC`: `true`
 - `STREAMLIT_PASSWORD`: (Optional password gate)
 
