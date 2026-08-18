@@ -8,6 +8,11 @@ from dotenv import load_dotenv
 from google import genai
 from google.genai import types
 from git_sync import sync_notes_to_git
+from anki_exporter import generate_anki_deck_from_file
+from obsidian_moc import update_all_course_mocs
+from metadata_db import index_lecture_file
+from vector_store import index_file_in_vector_db
+from audio_optimizer import optimize_audio_file
 
 load_dotenv()
 
@@ -15,7 +20,6 @@ client = genai.Client(api_key=os.environ.get("GEMINI_API_KEY"))
 LECTURES_DIR = Path(os.environ.get("LECTURES_DIR", "./lectures"))
 LECTURES_DIR.mkdir(parents=True, exist_ok=True)
 
-# Tiered Model Architecture
 DEFAULT_AUDIO_MODEL = os.environ.get("AUDIO_MODEL", "gemini-3.6-flash")
 DEFAULT_DOC_MODEL = os.environ.get("DOC_MODEL", "gemini-3.1-flash-lite")
 DEFAULT_DENSE_MODEL = os.environ.get("DENSE_MATH_MODEL", "gemini-3.6-flash")
@@ -28,12 +32,6 @@ SUPPORTED_DOC_EXTS = {".pdf", ".docx", ".doc", ".txt", ".md", ".pptx", ".ppt"}
 SUPPORTED_EXTS = SUPPORTED_AUDIO_EXTS.union(SUPPORTED_DOC_EXTS)
 
 def get_optimal_model_for_file(file_path: Path, is_dense_math: bool = False) -> tuple[str, list[str]]:
-    """
-    Intelligently routes files to the optimal model based on workload:
-    - Audio (Ambient Hall Acoustic / Spoken Math) -> Gemini Flash (3.6-flash / 3.5-flash)
-    - Clean Slides / Typed Text / Docs           -> Gemini Flash-Lite (3.1-flash-lite / 3.5-flash-lite)
-    - Hand-Annotated / Dense Math Papers         -> Gemini Flash (3.6-flash)
-    """
     suffix = file_path.suffix.lower()
     if suffix in SUPPORTED_AUDIO_EXTS:
         return DEFAULT_AUDIO_MODEL, AUDIO_FALLBACKS
@@ -61,20 +59,35 @@ def process_file(file_path_str: str, course_name: str, topic_name: str, lecture_
 
     suffix = file_path.suffix.lower()
     is_audio = suffix in SUPPORTED_AUDIO_EXTS
+
+    # 1. Automatic Audio Pre-Optimization (32kbps AAC conversion)
+    actual_upload_path = file_path
+    if is_audio:
+        try:
+            opt_parts = optimize_audio_file(file_path)
+            if opt_parts:
+                actual_upload_path = opt_parts[0]
+        except Exception as e:
+            print(f"[!] Audio optimizer notice: {e}")
+
     content_type_label = "audio recording" if is_audio else ("dense mathematical document" if is_dense_math else "academic slides/document")
 
-    # Dynamic tiered model selection
     if model is None:
         selected_model, fallback_pool = get_optimal_model_for_file(file_path, is_dense_math)
     else:
         selected_model = model
         fallback_pool = AUDIO_FALLBACKS if is_audio else DOC_FALLBACKS
 
+    # Domain vocabulary & international accent priming prompt (Optimization A)
     prompt = f"""
     You are an expert academic tutor for a graduate-level STEM curriculum.
     Analyze the provided {content_type_label} for:
     - Course: "{course_name}"
     - Topic: "{topic_name}"
+
+    [ACOUSTIC ADAPTATION & ACCENT PRIMING INSTRUCTIONS]:
+    - Normalize diverse international accents and room reverberation.
+    - Accurately identify technical domain terminology, Greek notations, and vector calculus proofs without phonetic hallucination.
 
     Generate your response in standard Markdown (compatible with Obsidian math & callouts) using EXACTLY the following structure:
     
@@ -107,7 +120,7 @@ def process_file(file_path_str: str, course_name: str, topic_name: str, lecture_
         if not text_content.strip():
             print(f"[*] Uploading {file_path.name} to Gemini File API...")
             with contextlib.redirect_stderr(io.StringIO()):
-                uploaded_remote_file = client.files.upload(file=str(file_path))
+                uploaded_remote_file = client.files.upload(file=str(actual_upload_path))
             contents_payload = [uploaded_remote_file, prompt]
         else:
             contents_payload = [f"Document Content for {file_path.name}:\n\n{text_content}", prompt]
@@ -115,9 +128,9 @@ def process_file(file_path_str: str, course_name: str, topic_name: str, lecture_
         text_content = file_path.read_text(encoding="utf-8", errors="ignore")
         contents_payload = [f"Document Content for {file_path.name}:\n\n{text_content}", prompt]
     else:
-        print(f"[*] Uploading {file_path.name} to Gemini File API...")
+        print(f"[*] Uploading {actual_upload_path.name} to Gemini File API...")
         with contextlib.redirect_stderr(io.StringIO()):
-            uploaded_remote_file = client.files.upload(file=str(file_path))
+            uploaded_remote_file = client.files.upload(file=str(actual_upload_path))
         contents_payload = [uploaded_remote_file, prompt]
 
     candidate_models = [selected_model] + [m for m in fallback_pool if m != selected_model]
@@ -166,6 +179,20 @@ tags:
     output_filename.write_text(file_content, encoding="utf-8")
     print(f"[+] Successfully saved structured notes to: {output_filename}")
     
+    # 2. Automated Pipeline Extensions
+    try:
+        # a. Auto-generate Anki deck for this note
+        generate_anki_deck_from_file(output_filename)
+        # b. Update Obsidian Course Map of Content (MOC)
+        update_all_course_mocs(LECTURES_DIR)
+        # c. Index note in SQLite Metadata Cache
+        index_lecture_file(output_filename)
+        # d. Index note in ChromaDB Vector Database
+        index_file_in_vector_db(output_filename)
+    except Exception as e:
+        print(f"[!] Warning: Pipeline extension index notice: {e}")
+
+    # 3. Git Auto-sync to my-obsidian-notes repo
     try:
         commit_msg = f"Auto-sync note: {safe_course} - {safe_topic} ({lecture_date})"
         sync_notes_to_git(commit_msg)

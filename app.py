@@ -9,6 +9,9 @@ from core_engine import (
     DEFAULT_MODEL
 )
 from ingest_audio import process_file
+from anki_exporter import generate_anki_deck_for_course, generate_anki_deck_from_file
+from vector_store import semantic_search_notes
+from metadata_db import query_courses
 
 st.set_page_config(page_title="Academic Lecture & Notes Hub", page_icon="🎓", layout="wide")
 st.title("🎓 Graduate Lecture, Notes & Exam Hub")
@@ -17,7 +20,7 @@ with st.sidebar:
     st.header("⚙️ Model Architecture")
     st.info(
         "🧠 **Intelligent Tiered Routing:**\n"
-        "• **Audio / Dense Math**: `gemini-3.6-flash` (Strong acoustic & proof reasoning)\n"
+        "• **Audio / Dense Math**: `gemini-3.6-flash` (Acoustic & proof reasoning)\n"
         "• **Typed PDFs & Slides**: `gemini-3.1-flash-lite` (350+ tokens/sec, low latency)"
     )
     
@@ -39,7 +42,13 @@ with st.sidebar:
     )
     active_model = None if selected_model_choice == "Auto (Workload-Aware)" else selected_model_choice
 
-tab_upload, tab_recap, tab_exam = st.tabs(["📤 Upload Lecture / Document", "📅 Daily Recap", "🎯 Exam Prep & Doubts"])
+tab_upload, tab_recap, tab_exam, tab_search, tab_anki = st.tabs([
+    "📤 Upload", 
+    "📅 Daily Recap", 
+    "🎯 Exam Prep", 
+    "🔍 Semester Search", 
+    "📇 Anki Decks"
+])
 
 with tab_upload:
     st.subheader("Direct File Ingestion (Audio, PDF, Slides & Docs)")
@@ -53,7 +62,7 @@ with tab_upload:
     with c3:
         up_date = st.date_input("Lecture / Material Date", datetime.date.today())
     with c4:
-        is_dense_math = st.checkbox("Dense Math Paper / Hand-Annotated (Use Flash)", value=False, help="Forces full Gemini Flash for complex handwritten formulas or dense proof derivations.")
+        is_dense_math = st.checkbox("Dense Math Paper / Hand-Annotated (Use Flash)", value=False)
 
     uploaded_file = st.file_uploader(
         "Upload Audio Recording or Academic Document",
@@ -78,7 +87,7 @@ with tab_upload:
                     model=active_model,
                     is_dense_math=is_dense_math
                 )
-                st.success(f"✅ Notes successfully generated and saved to `{out_path.name}`!")
+                st.success(f"✅ Notes successfully generated, synced to Obsidian, and indexed in Vector DB!")
                 st.markdown(out_path.read_text(encoding="utf-8"))
             except Exception as e:
                 st.error(f"Error processing file: {e}")
@@ -96,7 +105,7 @@ with tab_recap:
 
 with tab_exam:
     st.subheader("Date-Filtered Syllabus & Exam Tutor")
-    courses = get_available_courses()
+    courses = query_courses() or get_available_courses()
     
     if not courses:
         st.info("No lecture notes found in `./lectures`. Upload files in the 'Upload' tab or via Telegram.")
@@ -131,3 +140,42 @@ with tab_exam:
                         st.session_state.messages.append({"role": "assistant", "content": reply})
                     except Exception as e:
                         st.error(f"Error during query: {e}")
+
+with tab_search:
+    st.subheader("🧠 Semester-Wide Semantic Vector Search (Hybrid RAG)")
+    search_query = st.text_input("Enter Semantic Concept, Equation or Question", placeholder="e.g. Find all proofs where Jensen's inequality or complementary slackness was used")
+    c_filter = st.selectbox("Filter by Course (Optional)", ["All Courses"] + (query_courses() or []))
+    
+    if st.button("Search Knowledge Base", type="primary", disabled=not search_query):
+        course_arg = None if c_filter == "All Courses" else c_filter
+        with st.spinner("Searching ChromaDB vector store..."):
+            results = semantic_search_notes(search_query, n_results=5, course_filter=course_arg)
+            if not results:
+                st.info("No matching semantic chunks found in vector database.")
+            else:
+                for idx, r in enumerate(results):
+                    with st.expander(f"📌 [{r['course']}] {r['topic']} ({r['date']}) - {r['section']}", expanded=(idx==0)):
+                        st.markdown(r["content"])
+
+with tab_anki:
+    st.subheader("📇 Spaced Repetition Anki Decks (.apkg)")
+    available_courses = query_courses() or get_available_courses()
+    
+    if not available_courses:
+        st.info("No courses available to generate Anki decks yet.")
+    else:
+        sel_course = st.selectbox("Select Course for Complete Deck", available_courses, key="anki_sel")
+        if st.button("Generate Complete Course Anki Deck (.apkg)", type="primary"):
+            with st.spinner(f"Compiling flashcards for {sel_course}..."):
+                deck_path = generate_anki_deck_for_course(Path("./lectures"), sel_course)
+                if deck_path and deck_path.exists():
+                    st.success(f"✅ Anki deck `{deck_path.name}` generated!")
+                    with open(deck_path, "rb") as f:
+                        st.download_button(
+                            label=f"⬇️ Download {sel_course} Anki Deck (.apkg)",
+                            data=f,
+                            file_name=deck_path.name,
+                            mime="application/octet-stream"
+                        )
+                else:
+                    st.warning("No flashcards found for this course.")

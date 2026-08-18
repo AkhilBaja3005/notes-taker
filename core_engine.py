@@ -26,13 +26,23 @@ LECTURES_DIR = Path(os.environ.get("LECTURES_DIR", "./lectures"))
 
 def clean_and_repair_latex(markdown_text: str) -> str:
     """
-    Comprehensive regex sanitizer that fixes all broken LaTeX patterns emitted by LLMs
-    so KaTeX and MathJax render 100% cleanly without broken plain-text spills.
+    Comprehensive regex sanitizer & normalizer that converts non-standard LaTeX packages
+    into universal KaTeX & MathJax macros and repairs orphan alignment tags.
     """
     if not markdown_text:
         return ""
 
     text = markdown_text
+
+    # --- Optimization B: Macro Normalization ---
+    # Convert \bm{...} and \bold{...} to \mathbf{...}
+    text = re.sub(r"\\bm\{([^}]+)\}", r"\\mathbf{\1}", text)
+    text = re.sub(r"\\bold\{([^}]+)\}", r"\\mathbf{\1}", text)
+    # Normalize \argmax and \argmin
+    text = re.sub(r"\\argmax\b", r"\\operatorname*{argmax}", text)
+    text = re.sub(r"\\argmin\b", r"\\operatorname*{argmin}", text)
+    # Normalize \mathbbm{1} to \mathbf{1} or \mathbb{I}
+    text = re.sub(r"\\mathbbm\{1\}", r"\\mathbf{1}", text)
 
     # 1. Fix orphan `\end{aligned}$$` where LLM forgot `$$\begin{aligned}`
     orphan_pattern = r"(?<!\\begin\{aligned\})(?:^|\n)([^\n\$]*?[a-zA-Z0-9_\(\)\{\}\^\\]+\s*&=\s*.*?)(\\end\{aligned\}\$\$)"
@@ -54,7 +64,7 @@ def clean_and_repair_latex(markdown_text: str) -> str:
 
     text = re.sub(r"\$\$(.*?)\$\$", fix_display_math, text, flags=re.DOTALL)
 
-    # 3. Clean any duplicate newlines created around math blocks
+    # 3. Clean duplicate newlines
     text = re.sub(r"\n{3,}", "\n\n", text)
     return text
 
@@ -74,7 +84,6 @@ def generate_with_fallback(prompt: str, system_instruction: str = None, requeste
                 
             config = types.GenerateContentConfig(**config_kwargs) if config_kwargs else None
 
-            # Suppress SDK deprecation AFC stderr noise
             with contextlib.redirect_stderr(io.StringIO()):
                 response = client.models.generate_content(
                     model=model_name,
