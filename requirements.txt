@@ -11,3 +11,4 @@ pydub>=0.25.1
 matplotlib>=3.8.0
 genanki>=0.13.0
 chromadb>=0.4.24
+audio-recorder-streamlit>=0.0.8

@@ -1,6 +1,8 @@
+import os
 import streamlit as st
 import datetime
 from pathlib import Path
+from audio_recorder_streamlit import audio_recorder
 from core_engine import (
     get_available_courses,
     generate_daily_recap,
@@ -14,6 +16,24 @@ from vector_store import semantic_search_notes
 from metadata_db import query_courses
 
 st.set_page_config(page_title="Academic Lecture & Notes Hub", page_icon="🎓", layout="wide")
+
+# --- Security Gate for Public Deployments ---
+AUTH_PASSWORD = os.environ.get("STREAMLIT_PASSWORD")
+if AUTH_PASSWORD:
+    if "authenticated" not in st.session_state:
+        st.session_state.authenticated = False
+
+    if not st.session_state.authenticated:
+        st.title("🔒 Academic Lecture Assistant Portal")
+        entered_pwd = st.text_input("Enter Access Password", type="password")
+        if st.button("Unlock Dashboard", type="primary"):
+            if entered_pwd == AUTH_PASSWORD:
+                st.session_state.authenticated = True
+                st.rerun()
+            else:
+                st.error("❌ Incorrect Password.")
+        st.stop()
+
 st.title("🎓 Graduate Lecture, Notes & Exam Hub")
 
 with st.sidebar:
@@ -43,7 +63,7 @@ with st.sidebar:
     active_model = None if selected_model_choice == "Auto (Workload-Aware)" else selected_model_choice
 
 tab_upload, tab_recap, tab_exam, tab_search, tab_anki = st.tabs([
-    "📤 Upload", 
+    "📤 Ingestion & Live Mic", 
     "📅 Daily Recap", 
     "🎯 Exam Prep", 
     "🔍 Semester Search", 
@@ -51,7 +71,7 @@ tab_upload, tab_recap, tab_exam, tab_search, tab_anki = st.tabs([
 ])
 
 with tab_upload:
-    st.subheader("Direct File Ingestion (Audio, PDF, Slides & Docs)")
+    st.subheader("Direct Lecture Ingestion (Audio, PDF, Slides & In-Browser Mic)")
     c1, c2 = st.columns(2)
     with c1:
         up_course = st.text_input("Course Name", placeholder="e.g. Machine Learning")
@@ -64,8 +84,42 @@ with tab_upload:
     with c4:
         is_dense_math = st.checkbox("Dense Math Paper / Hand-Annotated (Use Flash)", value=False)
 
+    st.markdown("##### 🎙️ Option A: Live Microphone Recording")
+    audio_bytes = audio_recorder(
+        text="Click to record lecture voice note",
+        recording_color="#e78284",
+        neutral_color="#89b4fa",
+        icon_size="2x"
+    )
+
+    if audio_bytes:
+        st.audio(audio_bytes, format="audio/wav")
+        if st.button("Process Live Recording", type="primary", disabled=(not up_course or not up_topic)):
+            with st.spinner("Processing live lecture recording..."):
+                incoming_dir = Path("./incoming_audio")
+                incoming_dir.mkdir(parents=True, exist_ok=True)
+                rec_filename = f"live_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.wav"
+                save_path = incoming_dir / rec_filename
+                
+                save_path.write_bytes(audio_bytes)
+                try:
+                    out_path = process_file(
+                        file_path_str=str(save_path),
+                        course_name=up_course,
+                        topic_name=up_topic,
+                        lecture_date=up_date.isoformat(),
+                        model=active_model,
+                        is_dense_math=is_dense_math
+                    )
+                    st.success(f"✅ Notes successfully generated from live mic!")
+                    st.markdown(out_path.read_text(encoding="utf-8"))
+                except Exception as e:
+                    st.error(f"Error: {e}")
+
+    st.divider()
+    st.markdown("##### 📁 Option B: Upload Audio Recording or Academic Document")
     uploaded_file = st.file_uploader(
-        "Upload Audio Recording or Academic Document",
+        "Select File",
         type=["m4a", "mp3", "wav", "aac", "ogg", "flac", "pdf", "docx", "doc", "txt", "md", "pptx", "ppt"]
     )
 
