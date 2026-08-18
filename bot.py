@@ -36,7 +36,6 @@ INCOMING_DIR = Path(os.environ.get("WATCH_DIR", "./incoming_audio"))
 INCOMING_DIR.mkdir(parents=True, exist_ok=True)
 LECTURES_DIR = Path(os.environ.get("LECTURES_DIR", "./lectures"))
 
-# Security: Allowed Telegram user IDs (comma-separated). If empty, open to admin
 raw_allowed = os.environ.get("ALLOWED_TELEGRAM_USER_IDS", "").strip()
 ALLOWED_USERS = set(int(uid.strip()) for uid in raw_allowed.split(",") if uid.strip().isdigit())
 
@@ -48,14 +47,8 @@ def is_authorized(user_id: int) -> bool:
     return user_id in ALLOWED_USERS
 
 async def send_smart_message(update: Update, text: str, document_bytes: bytes = None, filename: str = "notes.md"):
-    """
-    Solves Telegram 4096-char truncation & markdown limits:
-    - Automatically chunks long responses cleanly across paragraphs/bullet points.
-    - If document_bytes is provided or message is huge (>4 chunks), attaches full source .md/.txt file.
-    """
     target = update.effective_message
 
-    # If document provided, send as file attachment first or alongside
     if document_bytes:
         doc_io = io.BytesIO(document_bytes)
         doc_io.name = filename
@@ -65,7 +58,6 @@ async def send_smart_message(update: Update, text: str, document_bytes: bytes = 
             parse_mode="Markdown"
         )
 
-    # Chunk text under 4000 characters
     max_chunk = 3800
     if len(text) <= max_chunk:
         try:
@@ -74,7 +66,6 @@ async def send_smart_message(update: Update, text: str, document_bytes: bytes = 
             await target.reply_text(text)
         return
 
-    # Split intelligently by markdown headers / paragraphs
     paragraphs = text.split("\n\n")
     current_chunk = ""
 
@@ -96,12 +87,10 @@ async def send_smart_message(update: Update, text: str, document_bytes: bytes = 
             await target.reply_text(current_chunk.strip())
 
 def render_latex_image(latex_expr: str) -> io.BytesIO:
-    """Renders LaTeX math formulas into a crisp PNG image for Telegram."""
     clean_latex = latex_expr.strip().strip("$")
     fig = plt.figure(figsize=(0.01, 0.01))
-    fig.patch.set_facecolor('#1e1e1e') # dark mode friendly background
+    fig.patch.set_facecolor('#1e1e1e')
     
-    # Render Math Text
     t = plt.text(
         0.5, 0.5, f"${clean_latex}$",
         fontsize=18,
@@ -117,8 +106,6 @@ def render_latex_image(latex_expr: str) -> io.BytesIO:
     plt.close(fig)
     buf.seek(0)
     return buf
-
-# ----------------- Commands -----------------
 
 async def start_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -145,7 +132,6 @@ async def start_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_markdown(help_text)
 
 async def menu_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Interactive visual button menu for courses, recaps, and exam prep."""
     if not is_authorized(update.effective_user.id):
         return
 
@@ -157,7 +143,6 @@ async def menu_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     if courses:
         course_buttons = [InlineKeyboardButton(f"📚 {c}", callback_data=f"select_course_{c}") for c in courses[:6]]
-        # Arrange 2 per row
         for i in range(0, len(course_buttons), 2):
             keyboard.append(course_buttons[i:i+2])
 
@@ -165,6 +150,7 @@ async def menu_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("🎓 *Academic Dashboard Menu*\nChoose an action or course below:", reply_markup=reply_markup, parse_mode="Markdown")
 
 async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    global current_bot_model
     query = update.callback_query
     await query.answer()
     data = query.data
@@ -172,15 +158,17 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if data == "recap_today":
         today = datetime.date.today()
         await query.edit_message_text(f"⏳ Generating daily briefing for {today}...")
-        recap = generate_daily_recap(today, model=current_bot_model)
-        await send_smart_message(update, recap)
+        try:
+            recap = generate_daily_recap(today, model=current_bot_model)
+            await send_smart_message(update, recap)
+        except Exception as e:
+            await query.edit_message_text(f"❌ Error generating briefing: {e}")
         
     elif data == "show_models":
         buttons = [[InlineKeyboardButton(f"{'✅ ' if m == current_bot_model else ''}{m}", callback_data=f"set_model_{m}")] for m in SUPPORTED_MODELS]
         await query.edit_message_text("🤖 *Select Active Gemini Model:*", reply_markup=InlineKeyboardMarkup(buttons), parse_mode="Markdown")
 
     elif data.startswith("set_model_"):
-        global current_bot_model
         new_model = data.replace("set_model_", "")
         current_bot_model = new_model
         await query.edit_message_text(f"✅ Active model updated to `{current_bot_model}`", parse_mode="Markdown")
@@ -197,7 +185,6 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
 async def latex_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Renders LaTeX expression as an image."""
     if not is_authorized(update.effective_user.id):
         return
         
@@ -242,8 +229,11 @@ async def recap_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
     await update.message.reply_text(f"⏳ Generating daily briefing for {target_date} using `{current_bot_model}`...", parse_mode="Markdown")
-    recap = generate_daily_recap(target_date, model=current_bot_model)
-    await send_smart_message(update, recap, document_bytes=recap.encode("utf-8"), filename=f"Recap_{target_date}.md")
+    try:
+        recap = generate_daily_recap(target_date, model=current_bot_model)
+        await send_smart_message(update, recap, document_bytes=recap.encode("utf-8"), filename=f"Recap_{target_date}.md")
+    except Exception as e:
+        await update.message.reply_text(f"❌ Error: {e}")
 
 async def exam_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_authorized(update.effective_user.id):
@@ -268,8 +258,11 @@ async def exam_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     await update.message.reply_text(f"🔍 Searching notes for *{course}* ({start_d} to {end_d}) using `{current_bot_model}`...", parse_mode="Markdown")
-    answer = query_exam_syllabus(course, start_d, end_d, question, model=current_bot_model)
-    await send_smart_message(update, answer, document_bytes=answer.encode("utf-8"), filename=f"Exam_QnA_{course.replace(' ', '_')}.md")
+    try:
+        answer = query_exam_syllabus(course, start_d, end_d, question, model=current_bot_model)
+        await send_smart_message(update, answer, document_bytes=answer.encode("utf-8"), filename=f"Exam_QnA_{course.replace(' ', '_')}.md")
+    except Exception as e:
+        await update.message.reply_text(f"❌ Error: {e}")
 
 async def handle_media_or_doc(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_authorized(update.effective_user.id):
@@ -330,7 +323,6 @@ async def handle_media_or_doc(update: Update, context: ContextTypes.DEFAULT_TYPE
         
         notes_content = output_file.read_text(encoding="utf-8")
         
-        # Send full generated markdown document as attachment + smart summary chunks
         await status_msg.edit_text(
             f"✅ *Structured Notes Generated Successfully!*\n\n"
             f"• *Course:* {course}\n"

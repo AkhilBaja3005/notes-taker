@@ -12,11 +12,18 @@ load_dotenv()
 client = genai.Client(api_key=os.environ.get("GEMINI_API_KEY"))
 LECTURES_DIR = Path(os.environ.get("LECTURES_DIR", "./lectures"))
 LECTURES_DIR.mkdir(parents=True, exist_ok=True)
-GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-3.7-flash")
+GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-3.6-flash")
 
 SUPPORTED_AUDIO_EXTS = {".m4a", ".mp3", ".wav", ".aac", ".ogg", ".flac", ".wma"}
 SUPPORTED_DOC_EXTS = {".pdf", ".docx", ".doc", ".txt", ".md", ".pptx", ".ppt"}
 SUPPORTED_EXTS = SUPPORTED_AUDIO_EXTS.union(SUPPORTED_DOC_EXTS)
+
+FALLBACK_MODELS = [
+    "gemini-3.6-flash",
+    "gemini-3.5-flash",
+    "gemini-flash-latest",
+    "gemini-3.1-flash-lite"
+]
 
 def extract_text_from_docx(file_path: Path) -> str:
     try:
@@ -30,7 +37,7 @@ def extract_text_from_docx(file_path: Path) -> str:
 def process_file(file_path_str: str, course_name: str, topic_name: str, lecture_date: str = None, model: str = None) -> Path:
     if lecture_date is None:
         lecture_date = datetime.date.today().isoformat()
-    if model is None:
+    if model is None or model == "gemini-3.7-flash":
         model = GEMINI_MODEL
 
     file_path = Path(file_path_str)
@@ -88,11 +95,25 @@ def process_file(file_path_str: str, course_name: str, topic_name: str, lecture_
         uploaded_remote_file = client.files.upload(file=str(file_path))
         contents_payload = [uploaded_remote_file, prompt]
 
-    print(f"[*] Processing material through Gemini ({model})...")
-    response = client.models.generate_content(
-        model=model,
-        contents=contents_payload
-    )
+    candidate_models = [model] + [m for m in FALLBACK_MODELS if m != model]
+    response = None
+    last_err = None
+
+    for candidate in candidate_models:
+        try:
+            print(f"[*] Processing material through Gemini ({candidate})...")
+            response = client.models.generate_content(
+                model=candidate,
+                contents=contents_payload
+            )
+            model = candidate
+            break
+        except Exception as err:
+            print(f"[!] Warning: {candidate} error: {err}. Retrying with next model...")
+            last_err = err
+
+    if response is None:
+        raise RuntimeError(f"All Gemini models failed. Last error: {last_err}")
 
     clean_course_tag = course_name.replace(" ", "")
     clean_topic_tag = topic_name.replace(" ", "")
@@ -119,14 +140,12 @@ tags:
     output_filename.write_text(file_content, encoding="utf-8")
     print(f"[+] Successfully saved structured notes to: {output_filename}")
     
-    # Auto-commit & push to Git repository for Obsidian sync
     try:
         commit_msg = f"Auto-sync note: {safe_course} - {safe_topic} ({lecture_date})"
         sync_notes_to_git(commit_msg)
     except Exception as e:
         print(f"[!] Warning: Git auto-sync failed: {e}")
 
-    # Cleanup remote file
     if uploaded_remote_file:
         try:
             client.files.delete(name=uploaded_remote_file.name)

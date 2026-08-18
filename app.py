@@ -1,4 +1,3 @@
-# pyrefly: ignore [missing-import]
 import streamlit as st
 import datetime
 from pathlib import Path
@@ -72,8 +71,11 @@ with tab_recap:
     selected_date = st.date_input("Select Lecture Date for Recap", datetime.date.today())
     if st.button("Generate Daily Briefing", type="primary"):
         with st.spinner(f"Analyzing all lectures for {selected_date} using {selected_model}..."):
-            recap_md = generate_daily_recap(selected_date, model=selected_model)
-            st.markdown(recap_md)
+            try:
+                recap_md = generate_daily_recap(selected_date, model=selected_model)
+                st.markdown(recap_md)
+            except Exception as e:
+                st.error(f"Error generating briefing: {e}")
 
 with tab_exam:
     st.subheader("Date-Filtered Syllabus & Exam Tutor")
@@ -106,6 +108,9 @@ with tab_exam:
 
             with st.chat_message("assistant"):
                 with st.spinner(f"Analyzing lecture syllabus using {selected_model}..."):
-                    reply = query_exam_syllabus(course, start_date, end_date, user_prompt, model=selected_model)
-                    st.markdown(reply)
-                    st.session_state.messages.append({"role": "assistant", "content": reply})
+                    try:
+                        reply = query_exam_syllabus(course, start_date, end_date, user_prompt, model=selected_model)
+                        st.markdown(reply)
+                        st.session_state.messages.append({"role": "assistant", "content": reply})
+                    except Exception as e:
+                        st.error(f"Error during query: {e}")
