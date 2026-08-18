@@ -307,7 +307,17 @@ def main():
         print("[!] TELEGRAM_BOT_TOKEN not configured.")
         return
 
-    app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
+    from telegram.request import HTTPXRequest
+
+    # Generous timeouts for cloud container network latency (Hugging Face Spaces)
+    request_client = HTTPXRequest(
+        connect_timeout=60.0,
+        read_timeout=60.0,
+        write_timeout=60.0,
+        pool_timeout=60.0
+    )
+
+    app = ApplicationBuilder().token(TELEGRAM_TOKEN).request(request_client).build()
     app.add_handler(CommandHandler("start", start_command))
     app.add_handler(CommandHandler("menu", menu_command))
     app.add_handler(CommandHandler("recap", recap_command))
@@ -319,7 +329,8 @@ def main():
     app.add_handler(MessageHandler(filters.ATTACHMENT | filters.VOICE | filters.AUDIO, file_handler))
 
     print("[*] Academic Assistant Telegram Bot running...")
-    app.run_polling()
+    # bootstrap_retries=-1 enables infinite retries with exponential backoff on startup network hiccups
+    app.run_polling(bootstrap_retries=-1, timeout=30)
 
 if __name__ == "__main__":
     main()
