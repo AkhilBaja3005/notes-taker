@@ -13,9 +13,12 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          lfs: true
 
-      - name: Push to Hugging Face Space
+      - name: Install Git LFS
+        run: |
+          git lfs install
+
+      - name: Prepare Clean Deployment Tree for Hugging Face
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
@@ -24,12 +27,19 @@ jobs:
             exit 1
           fi
 
-          # Configure Git credentials for Hugging Face
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          
-          # Target Space: https://huggingface.co/spaces/abaja/notes-taker
-          AUTH_URL="https://abaja:${HF_TOKEN}@huggingface.co/spaces/abaja/notes-taker"
 
-          echo "[*] Mirroring main branch to Hugging Face Space (abaja/notes-taker)..."
-          git push "$AUTH_URL" main:main --force
+          # Create a clean orphan deployment branch with no historical binary objects
+          git checkout --orphan hf-sync-branch
+          git reset
+
+          # Remove local binary test samples and vector databases from git tracking
+          rm -rf test_samples/*.m4a test_samples/*.pdf vector_db metadata.db test_samples/optimized_audio
+
+          git add .
+          git commit -m "deploy: automated clean build for Hugging Face Spaces"
+
+          AUTH_URL="https://abaja:${HF_TOKEN}@huggingface.co/spaces/abaja/notes-taker"
+          echo "[*] Pushing clean deployment branch to Hugging Face Space..."
+          git push "$AUTH_URL" hf-sync-branch:main --force
