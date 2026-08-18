@@ -36,19 +36,28 @@ def main():
     )
     processes.append(watcher_proc)
 
-    # 2. Start Telegram Bot
-    print("[*] Launching Telegram Bot (bot.py)...")
-    bot_proc = subprocess.Popen(
-        [python_executable, "bot.py"],
-        stdout=sys.stdout,
-        stderr=sys.stderr
-    )
-    processes.append(bot_proc)
+    # 2. Start Telegram Bot (if token provided)
+    if os.environ.get("TELEGRAM_BOT_TOKEN"):
+        print("[*] Launching Telegram Bot (bot.py)...")
+        bot_proc = subprocess.Popen(
+            [python_executable, "bot.py"],
+            stdout=sys.stdout,
+            stderr=sys.stderr
+        )
+        processes.append(bot_proc)
+    else:
+        print("[!] TELEGRAM_BOT_TOKEN not configured - running Web UI & Watcher only.")
 
-    # 3. Start Streamlit App
-    print("[*] Launching Streamlit Web App (app.py)...")
+    # 3. Start Streamlit App (Port 7860 on HF Spaces / 8501 local)
+    port = os.environ.get("STREAMLIT_SERVER_PORT", "8501")
+    print(f"[*] Launching Streamlit Web App on port {port}...")
     streamlit_proc = subprocess.Popen(
-        [python_executable, "-m", "streamlit", "run", "app.py"],
+        [
+            python_executable, "-m", "streamlit", "run", "app.py",
+            "--server.port", str(port),
+            "--server.address", "0.0.0.0",
+            "--server.headless", "true"
+        ],
         stdout=sys.stdout,
         stderr=sys.stderr
     )
