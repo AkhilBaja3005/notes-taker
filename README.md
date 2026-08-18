@@ -1,3 +1,13 @@
+---
+title: Academic Notes Assistant
+emoji: 🎓
+colorFrom: indigo
+colorTo: purple
+sdk: docker
+pinned: false
+app_port: 7860
+---
+
 <div align="center">
 
 # 🎓 Autonomous Academic Lecture & Notes Assistant
@@ -55,19 +65,23 @@ The **Autonomous Academic Lecture Assistant** automates the entire lifecycle of 
 
 ## ✨ Key Features
 
-- **Multi-Format Ingestion**: Supports `.m4a`, `.mp3`, `.wav`, `.aac`, `.ogg`, `.flac`, `.pdf`, `.docx`, `.doc`, `.pptx`, `.ppt`, `.txt`, `.md`.
-- **Obsidian Native Integration**: Automatically attaches YAML frontmatter, `[[Wikilinks]]`, `#course/...` and `#topic/...` tags, and `> [!WARNING]` callouts.
+- **Multi-Format Ingestion**: Supports `.m4a`, `.mp3`, `.wav`, `.aac`, `.ogg`, `.flac`, `.pdf`, `.docx`, `.doc`, `.pptx`, `.ppt`, `.txt`, `.md`, and **Live Browser Mic**.
+- **Tiered Model Routing**: Routes audio and dense math proofs to `gemini-3.6-flash` and typed slides/docs to ultra-fast `gemini-3.1-flash-lite`.
+- **Obsidian Native Integration**: Automatically attaches YAML frontmatter, `[[Wikilinks]]`, `#course/...` tags, and `> [!WARNING]` callouts.
+- **Obsidian Maps of Content (MOC)**: Auto-compiles chronological syllabus tables, master theorem indexes, and exam pitfalls.
+- **Anki Flashcard Deck Exporter**: Auto-compiles native `.apkg` flashcard decks for spaced repetition.
+- **Semester-Wide ChromaDB Vector Search**: Semantic RAG queries across all past course notes and proofs.
 - **Automated Git Sync Engine**: Commits and pushes notes to your remote GitHub vault automatically.
 - **Streamlit Web Dashboard**:
-  - Live Gemini Flash model selector.
+  - Live in-browser microphone recording.
   - Multi-subject daily briefings.
-  - Date-filtered syllabus exam doubt solver & mock exam generator.
+  - Date-filtered syllabus exam tutor & semester semantic search.
 - **Asynchronous Telegram Bot**:
   - Send audio/PDFs on-the-go.
   - Interactive `/menu` button interface.
+  - Export Anki decks directly to mobile via `/anki`.
+  - Semantic vector search via `/search`.
   - High-res LaTeX math image rendering via `/latex`.
-  - Smart paragraph chunking & full `.md` file attachments.
-- **Fault-Tolerant AI Engine**: Automatic multi-model fallback chain across `gemini-3.6-flash`, `gemini-3.5-flash`, `gemini-flash-latest`, and `gemini-3.1-flash-lite`.
 
 ---
 
@@ -75,12 +89,15 @@ The **Autonomous Academic Lecture Assistant** automates the entire lifecycle of 
 
 ```text
 .
+├── .github/workflows/         # CI/CD auto-sync workflow for Hugging Face Spaces
 ├── .env.example               # Environment variables configuration template
 ├── .gitignore                 # Standard Python, Obsidian, and IDE ignore rules
-├── Dockerfile                 # Container image specification
+├── Dockerfile                 # Container image specification (UID 1000, Port 7860)
 ├── LICENSE                    # MIT License
-├── README.md                  # Project documentation
-├── app.py                     # Streamlit web dashboard
+├── README.md                  # Project documentation with HF Spaces metadata
+├── anki_exporter.py           # Anki .apkg deck generation engine
+├── app.py                     # Streamlit web dashboard with mic & password gate
+├── audio_optimizer.py         # 32kbps mono AAC audio compressor
 ├── bot.py                     # Telegram bot service
 ├── core_engine.py             # Shared reasoning, date filtering, and LaTeX repair
 ├── docker-compose.yml         # Container orchestration configuration
@@ -88,14 +105,16 @@ The **Autonomous Academic Lecture Assistant** automates the entire lifecycle of 
 ├── incoming_audio/            # Watched folder for recordings/documents
 ├── ingest_audio.py            # Universal audio and document ingestion pipeline
 ├── lectures/                  # Generated structured Markdown study notes
-├── main.py                    # Unified multi-service launcher
+├── main.py                    # Unified launcher with startup vault hydration & GC
+├── metadata_db.py             # Offline SQLite metadata database
 ├── requirements.txt           # Pinned project dependencies
+├── vector_store.py            # ChromaDB vector store & semantic search
 └── watcher.py                 # File system watcher daemon
 ```
 
 ---
 
-## 🛠️ Quick Start
+## 🛠️ Quick Start (Local Setup)
 
 ### 1. Clone & Setup Virtual Environment
 
@@ -118,7 +137,8 @@ cp .env.example .env
 
 ```env
 GEMINI_API_KEY=your_gemini_api_key_here
-GEMINI_MODEL=gemini-3.6-flash
+AUDIO_MODEL=gemini-3.6-flash
+DOC_MODEL=gemini-3.1-flash-lite
 TELEGRAM_BOT_TOKEN=your_telegram_bot_token_here
 ALLOWED_TELEGRAM_USER_IDS=
 WATCH_DIR=./incoming_audio
@@ -128,6 +148,7 @@ LECTURES_DIR=./lectures
 ENABLE_GIT_SYNC=true
 GIT_VAULT_REPO_URL=https://<GITHUB_PAT>@github.com/yourusername/my-obsidian-notes.git
 GIT_BRANCH=main
+STREAMLIT_PASSWORD=
 ```
 
 ### 3. Launch All Services
@@ -138,13 +159,16 @@ python main.py
 
 ---
 
-## 🐳 Docker Deployment
+## 🤗 Hugging Face Spaces Deployment
 
-To run the entire assistant suite in Docker:
+Space URL: **[https://huggingface.co/spaces/abaja/notes-taker](https://huggingface.co/spaces/abaja/notes-taker)**
 
-```bash
-docker-compose up -d --build
-```
+In your Hugging Face Space settings, add the following secrets:
+- `GEMINI_API_KEY`: Your Gemini API Key
+- `TELEGRAM_BOT_TOKEN`: `8477573311:AAEi1AHDpwd57me52c3r9yB3MWKDKTCIWOo`
+- `GIT_VAULT_REPO_URL`: `https://<GITHUB_PAT>@github.com/AkhilBaja3005/my-obsidian-notes.git`
+- `ENABLE_GIT_SYNC`: `true`
+- `STREAMLIT_PASSWORD`: (Optional password gate)
 
 ---
 
