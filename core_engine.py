@@ -29,42 +29,60 @@ _ACTIVE_SYLLABUS_CACHES = {}
 
 def clean_and_repair_latex(markdown_text: str) -> str:
     """
-    Comprehensive regex sanitizer & normalizer that converts non-standard LaTeX packages
-    into universal KaTeX & MathJax macros and repairs orphan alignment tags.
+    Comprehensive regex sanitizer & normalizer that converts non-standard LaTeX packages,
+    fixes single backslash linebreaks `\ `, wraps isolated `\begin{aligned}` blocks in `$$`,
+    and guarantees 100% rendering across Streamlit (KaTeX) and Obsidian (MathJax).
     """
     if not markdown_text:
         return ""
 
     text = markdown_text
 
-    # --- Optimization B: Macro Normalization ---
+    # 1. Macro Normalization
     text = re.sub(r"\\bm\{([^}]+)\}", r"\\mathbf{\1}", text)
     text = re.sub(r"\\bold\{([^}]+)\}", r"\\mathbf{\1}", text)
     text = re.sub(r"\\argmax(?=[^a-zA-Z]|$)", r"\\operatorname*{argmax}", text)
     text = re.sub(r"\\argmin(?=[^a-zA-Z]|$)", r"\\operatorname*{argmin}", text)
     text = re.sub(r"\\mathbbm\{1\}", r"\\mathbf{1}", text)
 
-    # 1. Fix orphan `\end{aligned}$$` where LLM forgot `$$\begin{aligned}`
-    orphan_pattern = r"(?<!\\begin\{aligned\})(?:^|\n)([^\n\$]*?[a-zA-Z0-9_\(\)\{\}\^\\]+\s*&=\s*.*?)(\\end\{aligned\}\$\$)"
+    # 2. Fix nested or doubled \begin{aligned}
+    text = re.sub(r"\\begin\{aligned\}\s*\\begin\{aligned\}", r"\\begin{aligned}", text)
+    text = re.sub(r"\\end\{aligned\}\s*\\end\{aligned\}", r"\\end{aligned}", text)
+
+    # 3. Fix single backslash followed by space where LLM meant line-break `\\`
+    text = re.sub(r"(?<=[^\\])\\\s+(?=[a-zA-Z0-9_\\])", r" \\\\\n", text)
+
+    # 4. Strip malformed or trailing delimiters touching \begin / \end{aligned}
+    text = re.sub(r"\$\$\s*\\begin\{aligned\}", r"\\begin{aligned}", text)
+    text = re.sub(r"\\end\{aligned\}\s*\$\$", r"\\end{aligned}", text)
+
+    # 5. Fix orphan `\end{aligned}` without `\begin{aligned}`
+    orphan_pattern = r"(?<!\\begin\{aligned\})(?:^|\n)([^\n\$]*?[a-zA-Z0-9_\(\)\{\}\^\\]+\s*&=\s*.*?)(\\end\{aligned\})"
     def repl_orphan(m):
         content = m.group(1).strip()
-        content = re.sub(r"^\$\$", "", content).strip()
-        return f"\n\n$$\n\\begin{{aligned}}\n{content}\n\\end{{aligned}}\n$$\n\n"
-
+        return f"\n\\begin{{aligned}}\n{content}\n\\end{{aligned}}\n"
     text = re.sub(orphan_pattern, repl_orphan, text, flags=re.DOTALL)
 
-    # 2. Fix blocks enclosed in `$$ ... $$` that contain `\end{aligned}` without `\begin{aligned}`
-    def fix_display_math(match):
-        block = match.group(1).strip()
-        if r"\end{aligned}" in block and r"\begin{aligned}" not in block:
-            block = r"\begin{aligned}" + "\n" + block
-        elif ("&=" in block or r"\\" in block) and r"\begin{aligned}" not in block and r"\begin{matrix}" not in block and r"\begin{cases}" not in block:
-            block = r"\begin{aligned}" + "\n" + block + "\n" + r"\end{aligned}"
-        return f"\n\n$$\n{block}\n$$\n\n"
+    # 6. Wrap ALL \begin{aligned} ... \end{aligned} cleanly in `$$ ... $$` with blank paragraph boundaries
+    def wrap_aligned(m):
+        content = m.group(0).strip()
+        # Clean any accidental duplicate \begin{aligned} inside
+        lines = content.splitlines()
+        clean_lines = []
+        seen_begin = False
+        for l in lines:
+            if "\\begin{aligned}" in l:
+                if not seen_begin:
+                    clean_lines.append(l)
+                    seen_begin = True
+            else:
+                clean_lines.append(l)
+        content = "\n".join(clean_lines)
+        return f"\n\n$$\n{content}\n$$\n\n"
 
-    text = re.sub(r"\$\$(.*?)\$\$", fix_display_math, text, flags=re.DOTALL)
+    text = re.sub(r"\\begin\{aligned\}.*?\\end\{aligned\}", wrap_aligned, text, flags=re.DOTALL)
 
-    # 3. Clean duplicate newlines
+    # 7. Clean duplicate newlines
     text = re.sub(r"\n{3,}", "\n\n", text)
     return text
 
@@ -170,10 +188,6 @@ def generate_daily_recap(target_date: datetime.date, model: str = None) -> str:
     return generate_with_fallback(prompt=prompt, requested_model=model)
 
 def query_exam_syllabus(course: str, start_date: datetime.date, end_date: datetime.date, question: str, model: str = None) -> str:
-    """
-    High-speed exam doubt solver with Gemini Context Caching:
-    Caches large course syllabus in Gemini memory to reduce query latency by 75% and token costs.
-    """
     context = get_notes_in_date_range(course, start_date, end_date)
     if not context:
         return f"No notes found for course '{course}' between {start_date} and {end_date}."
@@ -192,19 +206,15 @@ def query_exam_syllabus(course: str, start_date: datetime.date, end_date: dateti
     - CRITICAL: Never emit isolated '\\end{{aligned}}'. Always open with '$$\\begin{{aligned}}' and close with '\\end{{aligned}}$$'.
     """
 
-    # Check for active cached context (Optimization E)
     cache_key = f"{course}_{start_date}_{end_date}"
     now = datetime.datetime.now(datetime.timezone.utc)
     
-    # Try Gemini Context Caching if context is large (>2048 tokens)
     if len(context) > 2000 and (model is None or "flash" in model):
         try:
             cached_item = _ACTIVE_SYLLABUS_CACHES.get(cache_key)
             if cached_item and cached_item["expires_at"] > now:
                 cache_name = cached_item["name"]
-                config = types.GenerateContentConfig(
-                    cached_content=cache_name
-                )
+                config = types.GenerateContentConfig(cached_content=cache_name)
                 with contextlib.redirect_stderr(io.StringIO()):
                     resp = client.models.generate_content(
                         model=DEFAULT_MODEL,
@@ -213,7 +223,6 @@ def query_exam_syllabus(course: str, start_date: datetime.date, end_date: dateti
                     )
                 return clean_and_repair_latex(resp.text)
             else:
-                # Create a 1-hour cache on Gemini API
                 with contextlib.redirect_stderr(io.StringIO()):
                     new_cache = client.caches.create(
                         model=DEFAULT_MODEL,
