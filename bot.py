@@ -233,6 +233,7 @@ async def menu_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("🎛️ *Academic Assistant Control Panel:*", reply_markup=reply_markup, parse_mode="Markdown")
 
 async def button_callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    global current_bot_model
     query = update.callback_query
     await query.answer()
 
@@ -249,7 +250,6 @@ async def button_callback_handler(update: Update, context: ContextTypes.DEFAULT_
         kb = [[InlineKeyboardButton(m, callback_data=f"set_model_{m}")] for m in SUPPORTED_MODELS]
         await query.edit_message_text("🤖 *Select Active Model:*", reply_markup=InlineKeyboardMarkup(kb), parse_mode="Markdown")
     elif query.data.startswith("set_model_"):
-        global current_bot_model
         current_bot_model = query.data.replace("set_model_", "")
         await query.edit_message_text(f"✅ Active model updated to: `{current_bot_model}`", parse_mode="Markdown")
     elif query.data == "menu_status":
