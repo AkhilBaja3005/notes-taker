@@ -38,10 +38,12 @@ def clean_and_repair_latex(markdown_text: str) -> str:
     # Convert \bm{...} and \bold{...} to \mathbf{...}
     text = re.sub(r"\\bm\{([^}]+)\}", r"\\mathbf{\1}", text)
     text = re.sub(r"\\bold\{([^}]+)\}", r"\\mathbf{\1}", text)
-    # Normalize \argmax and \argmin
-    text = re.sub(r"\\argmax\b", r"\\operatorname*{argmax}", text)
-    text = re.sub(r"\\argmin\b", r"\\operatorname*{argmin}", text)
-    # Normalize \mathbbm{1} to \mathbf{1} or \mathbb{I}
+    
+    # Normalize \argmax and \argmin (handle with or without arguments/subscripts)
+    text = re.sub(r"\\argmax(?=[^a-zA-Z]|$)", r"\\operatorname*{argmax}", text)
+    text = re.sub(r"\\argmin(?=[^a-zA-Z]|$)", r"\\operatorname*{argmin}", text)
+    
+    # Normalize \mathbbm{1} to \mathbf{1}
     text = re.sub(r"\\mathbbm\{1\}", r"\\mathbf{1}", text)
 
     # 1. Fix orphan `\end{aligned}$$` where LLM forgot `$$\begin{aligned}`
@@ -69,7 +71,6 @@ def clean_and_repair_latex(markdown_text: str) -> str:
     return text
 
 def generate_with_fallback(prompt: str, system_instruction: str = None, requested_model: str = None) -> str:
-    """Robust generator with automatic fallback across stable Gemini Flash models and silent stderr."""
     if requested_model is None or requested_model == "gemini-3.7-flash":
         requested_model = DEFAULT_MODEL
 
