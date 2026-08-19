@@ -182,7 +182,9 @@ def send_startup_deployment_notification():
     api_root = proxy_base_url if proxy_base_url else "https://api.telegram.org"
 
     headers = {
-        "User-Agent": "Mozilla/5.0 (compatible; AcademicAssistantBot/1.0)",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept": "application/json",
+        "Content-Type": "application/json",
         "Connection": "close"
     }
 
