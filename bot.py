@@ -21,6 +21,7 @@ from ingest_audio import process_file
 from core_engine import (
     generate_daily_recap,
     query_exam_syllabus,
+    generate_with_fallback,
     SUPPORTED_MODELS,
     DEFAULT_MODEL
 )
