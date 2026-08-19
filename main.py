@@ -157,7 +157,7 @@ def cleanup_old_temp_files(hours_threshold: int = 48):
 
 def send_startup_deployment_notification():
     """Sends a Telegram notification to the owner whenever a new deployment boots up (runs in background with retries)."""
-    time.sleep(5)  # Allow container network & DNS to initialize fully
+    time.sleep(12)  # Allow container network & DNS to warm up
     token = os.environ.get("TELEGRAM_BOT_TOKEN")
     allowed_ids = [uid.strip() for uid in os.environ.get("ALLOWED_TELEGRAM_USER_IDS", "").split(",") if uid.strip().isdigit()]
     
@@ -167,7 +167,7 @@ def send_startup_deployment_notification():
     if not token or not target_users:
         return
 
-    import json
+    import httpx
     boot_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     msg_text = (
         f"🚀 *New Deployment Detected & Online!*\n\n"
@@ -179,23 +179,29 @@ def send_startup_deployment_notification():
         f"💬 Send `/menu` or ask any question to begin!"
     )
 
+    client = httpx.Client(timeout=30.0)
     for uid in target_users:
         for attempt in range(1, 4):
             try:
                 url = f"https://api.telegram.org/bot{token}/sendMessage"
-                payload = json.dumps({
-                    "chat_id": uid,
-                    "text": msg_text,
-                    "parse_mode": "Markdown",
-                    "disable_web_page_preview": True
-                }).encode("utf-8")
-                req = urllib.request.Request(url, data=payload, headers={"Content-Type": "application/json"})
-                with urllib.request.urlopen(req, timeout=15) as resp:
+                resp = client.post(
+                    url,
+                    json={
+                        "chat_id": uid,
+                        "text": msg_text,
+                        "parse_mode": "Markdown",
+                        "disable_web_page_preview": True
+                    }
+                )
+                if resp.status_code == 200:
                     print(f"[+] Startup deployment notification sent to Telegram user {uid}!")
                     break
+                else:
+                    print(f"[!] Notification response status {resp.status_code}: {resp.text}")
             except Exception as e:
                 print(f"[!] Deployment notification attempt {attempt} for {uid}: {e}")
-                time.sleep(4)
+                time.sleep(5)
+    client.close()
 
 def start_service(name: str, cmd: list) -> subprocess.Popen:
     """Spawns a managed process with explicit environment inheritance and registers it for self-healing supervision."""
