@@ -177,6 +177,7 @@ def send_startup_deployment_notification():
         f"• **Storage**: `Persistent /data Bucket Active`\n"
         f"• **Dashboard**: [abaja-notes-taker.hf.space](https://abaja-notes-taker.hf.space)\n\n"
         f"💬 Send `/menu` or ask any question to begin!"
+    )
     proxy_base_url = os.environ.get("TELEGRAM_API_BASE_URL", "").strip().rstrip("/")
     api_root = proxy_base_url if proxy_base_url else "https://api.telegram.org"
 
