@@ -155,67 +155,6 @@ def cleanup_old_temp_files(hours_threshold: int = 48):
     if cleaned > 0:
         print(f"[+] Garbage Collector: Cleaned {cleaned} temporary files older than {hours_threshold}h.")
 
-def send_startup_deployment_notification():
-    """Sends a Telegram notification to the owner whenever a new deployment boots up (runs in background with retries)."""
-    time.sleep(22)  # Allow container network namespace & DNS routing to fully stabilize
-    token = os.environ.get("TELEGRAM_BOT_TOKEN")
-    allowed_ids = [uid.strip() for uid in os.environ.get("ALLOWED_TELEGRAM_USER_IDS", "").split(",") if uid.strip().isdigit()]
-    
-    # Fallback to known owner ID if ALLOWED_TELEGRAM_USER_IDS is empty
-    target_users = allowed_ids if allowed_ids else ["8327334588"]
-
-    if not token or not target_users:
-        return
-
-    import asyncio
-    from telegram import Bot
-    from telegram.request import HTTPXRequest
-
-    proxy_base_url = os.environ.get("TELEGRAM_API_BASE_URL", "").strip()
-    if proxy_base_url and not proxy_base_url.endswith("/bot"):
-        proxy_base_url = proxy_base_url.rstrip("/") + "/bot"
-
-    request_client = HTTPXRequest(
-        connect_timeout=60.0,
-        read_timeout=60.0,
-        write_timeout=60.0,
-        pool_timeout=60.0
-    )
-
-    bot_builder = Bot(token=token, request=request_client, base_url=proxy_base_url if proxy_base_url else None)
-
-    boot_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    msg_text = (
-        f"🚀 *New Deployment Detected & Online!*\n\n"
-        f"• **Status**: `All Services Operational`\n"
-        f"• **Boot Time**: `{boot_time}`\n"
-        f"• **Active Engine**: `{os.environ.get('GEMINI_MODEL', 'gemini-3.6-flash')}`\n"
-        f"• **Storage**: `Persistent /data Bucket Active`\n"
-        f"• **Dashboard**: [abaja-notes-taker.hf.space](https://abaja-notes-taker.hf.space)\n\n"
-        f"💬 Send `/menu` or ask any question to begin!"
-    )
-
-    async def _send_all():
-        for uid in target_users:
-            for attempt in range(1, 5):
-                try:
-                    await bot_builder.send_message(
-                        chat_id=int(uid),
-                        text=msg_text,
-                        parse_mode="Markdown",
-                        disable_web_page_preview=True
-                    )
-                    print(f"[+] Startup deployment notification sent to Telegram user {uid}!")
-                    break
-                except Exception as e:
-                    print(f"[!] Deployment notification attempt {attempt} for {uid}: {e}")
-                    await asyncio.sleep(8 * attempt)
-
-    try:
-        asyncio.run(_send_all())
-    except Exception as e:
-        print(f"[!] Async notification runner notice: {e}")
-
 def start_service(name: str, cmd: list) -> subprocess.Popen:
     """Spawns a managed process with explicit environment inheritance and registers it for self-healing supervision."""
     env_vars = os.environ.copy()
@@ -261,9 +200,6 @@ def main():
         "--server.address", "0.0.0.0",
         "--server.headless", "true"
     ])
-
-    # 6. Send Proactive Telegram Deployment Notification (in background thread with retries)
-    threading.Thread(target=send_startup_deployment_notification, daemon=True).start()
 
     print("\n[+] All services started successfully with Self-Healing Supervisor active!")
     print("[+] Press Ctrl+C at any time to gracefully terminate all services.\n")

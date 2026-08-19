@@ -478,7 +478,32 @@ def main():
         pool_timeout=60.0
     )
 
-    builder = ApplicationBuilder().token(TELEGRAM_TOKEN).request(request_client)
+    async def on_startup(application):
+        allowed_ids = [uid.strip() for uid in os.environ.get("ALLOWED_TELEGRAM_USER_IDS", "").split(",") if uid.strip().isdigit()]
+        target_users = allowed_ids if allowed_ids else ["8327334588"]
+        boot_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        msg_text = (
+            f"🚀 *New Deployment Detected & Online!*\n\n"
+            f"• **Status**: `All Services Operational`\n"
+            f"• **Boot Time**: `{boot_time}`\n"
+            f"• **Active Engine**: `{os.environ.get('GEMINI_MODEL', 'gemini-3.6-flash')}`\n"
+            f"• **Storage**: `Persistent /data Bucket Active`\n"
+            f"• **Dashboard**: [abaja-notes-taker.hf.space](https://abaja-notes-taker.hf.space)\n\n"
+            f"💬 Send `/menu` or ask any question to begin!"
+        )
+        for uid in target_users:
+            try:
+                await application.bot.send_message(
+                    chat_id=int(uid),
+                    text=msg_text,
+                    parse_mode="Markdown",
+                    disable_web_page_preview=True
+                )
+                print(f"[+] Startup deployment notification sent to Telegram user {uid}!")
+            except Exception as e:
+                print(f"[!] Startup notification notice for {uid}: {e}")
+
+    builder = ApplicationBuilder().token(TELEGRAM_TOKEN).request(request_client).post_init(on_startup)
     if proxy_base_url:
         print(f"[*] Using Custom Telegram Reverse Proxy Gateway: {proxy_base_url}")
         builder = builder.base_url(proxy_base_url)
