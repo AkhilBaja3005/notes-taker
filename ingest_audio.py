@@ -13,6 +13,7 @@ from obsidian_moc import update_all_course_mocs
 from metadata_db import index_lecture_file
 from vector_store import index_file_in_vector_db
 from audio_optimizer import optimize_audio_file
+from core_engine import clean_and_repair_latex
 
 load_dotenv()
 
@@ -25,16 +26,15 @@ DEFAULT_DOC_MODEL = os.environ.get("DOC_MODEL", "gemini-3.1-flash-lite")
 DEFAULT_DENSE_MODEL = os.environ.get("DENSE_MATH_MODEL", "gemini-3.6-flash")
 
 AUDIO_FALLBACKS = [
-    "gemini-3.7-flash",
     "gemini-3.6-flash",
     "gemini-3.5-flash",
-    "gemini-3.0-flash",
-    "gemini-2.5-flash"
+    "gemini-2.5-flash",
+    "gemini-flash-latest"
 ]
 DOC_FALLBACKS = [
-    "gemini-3.5-flash-lite",
     "gemini-3.1-flash-lite",
-    "gemini-2.5-flash-lite",
+    "gemini-3.5-flash-lite",
+    "gemini-flash-lite-latest",
     "gemini-3.6-flash",
     "gemini-3.5-flash"
 ]
@@ -197,6 +197,7 @@ def process_file(file_path_str: str, course_name: str, topic_name: str, lecture_
     if response is None:
         raise RuntimeError(f"All Gemini models failed. Last error: {last_err}")
 
+    raw_text = clean_and_repair_latex(response.text)
     clean_course_tag = course_name.replace(" ", "")
     clean_topic_tag = topic_name.replace(" ", "")
 
@@ -212,7 +213,7 @@ tags:
   - graduate-notes
 ---
 
-{response.text}
+{raw_text}
 """
 
     safe_course = course_name.strip().replace(" ", "_")

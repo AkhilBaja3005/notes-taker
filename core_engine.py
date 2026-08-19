@@ -16,14 +16,14 @@ SUPPORTED_MODELS = [
     "gemini-3.7-flash",
     "gemini-3.6-flash",
     "gemini-3.5-flash",
-    "gemini-3.0-flash",
-    "gemini-2.5-flash",
-    "gemini-3.5-flash-lite",
     "gemini-3.1-flash-lite",
-    "gemini-2.5-flash-lite"
+    "gemini-3.5-flash-lite",
+    "gemini-2.5-flash",
+    "gemini-flash-latest",
+    "gemini-flash-lite-latest"
 ]
 
-DEFAULT_MODEL = os.environ.get("GEMINI_MODEL", "gemini-3.6-flash")
+DEFAULT_MODEL = os.environ.get("GEMINI_MODEL", "gemini-3.7-flash")
 
 client = genai.Client(api_key=os.environ.get("GEMINI_API_KEY"))
 LECTURES_DIR = Path(os.environ.get("LECTURES_DIR", "./lectures"))
@@ -91,11 +91,13 @@ def clean_and_repair_latex(markdown_text: str) -> str:
     return text
 
 def generate_with_fallback(prompt: str, system_instruction: str = None, requested_model: str = None, enable_web_search: bool = False) -> str:
-    """Robust generator with automatic fallback across stable Gemini Flash models and optional Google Web Search grounding."""
-    if requested_model is None or requested_model == "gemini-3.7-flash":
-        requested_model = DEFAULT_MODEL
-
-    candidate_models = [requested_model] + [m for m in SUPPORTED_MODELS if m != requested_model]
+    DEPRECATED_MODELS = {"gemini-2.5-flash-lite"}
+    
+    candidate_models = []
+    for m in [requested_model] + SUPPORTED_MODELS:
+        if m and m not in candidate_models and m not in DEPRECATED_MODELS:
+            candidate_models.append(m)
+            
     last_err = None
 
     for model_name in candidate_models:

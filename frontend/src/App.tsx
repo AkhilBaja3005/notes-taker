@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkMath from 'remark-math';
+import remarkGfm from 'remark-gfm';
 import rehypeKatex from 'rehype-katex';
 import { 
   BookOpen, 
@@ -58,6 +59,51 @@ interface ChatThread {
     message: string;
     created_at: string;
   }>;
+}
+
+function AcademicMarkdown({ content }: { content: string }) {
+  if (!content) return null;
+  const clean = content.replace(/^---[\s\S]*?---\s*/, '');
+  return (
+    <div className="prose prose-invert max-w-none text-slate-200 text-sm leading-relaxed space-y-4">
+      <ReactMarkdown
+        remarkPlugins={[remarkMath, remarkGfm]}
+        rehypePlugins={[rehypeKatex]}
+        components={{
+          h1: ({node, ...props}) => <h1 className="text-xl font-bold text-emerald-300 mt-6 mb-3 border-b border-slate-800 pb-2" {...props} />,
+          h2: ({node, ...props}) => <h2 className="text-lg font-semibold text-slate-100 mt-5 mb-2" {...props} />,
+          h3: ({node, ...props}) => <h3 className="text-base font-medium text-slate-200 mt-4 mb-2" {...props} />,
+          p: ({node, ...props}) => <p className="text-slate-300 my-2 leading-relaxed" {...props} />,
+          ul: ({node, ...props}) => <ul className="list-disc list-inside my-2 space-y-1 text-slate-300" {...props} />,
+          ol: ({node, ...props}) => <ol className="list-decimal list-inside my-2 space-y-1 text-slate-300" {...props} />,
+          li: ({node, ...props}) => <li className="text-slate-300" {...props} />,
+          blockquote: ({node, ...props}) => <blockquote className="border-l-4 border-emerald-500/60 bg-slate-950/60 px-4 py-2 my-3 rounded-r-lg text-slate-300 italic" {...props} />,
+          table: ({node, ...props}) => (
+            <div className="overflow-x-auto my-4 rounded-xl border border-slate-800 bg-slate-950/80 shadow-md">
+              <table className="w-full text-left text-xs border-collapse" {...props} />
+            </div>
+          ),
+          thead: ({node, ...props}) => <thead className="bg-slate-900/90 text-emerald-400 border-b border-slate-800" {...props} />,
+          tbody: ({node, ...props}) => <tbody className="divide-y divide-slate-800/60" {...props} />,
+          tr: ({node, ...props}) => <tr className="hover:bg-slate-900/40 transition" {...props} />,
+          th: ({node, ...props}) => <th className="px-4 py-3 font-semibold text-slate-200" {...props} />,
+          td: ({node, ...props}) => <td className="px-4 py-2.5 text-slate-300 align-top" {...props} />,
+          code: ({node, className, children, ...props}) => {
+            const match = /language-(\w+)/.exec(className || '');
+            return match ? (
+              <pre className="bg-slate-950 p-4 rounded-xl border border-slate-800 overflow-x-auto text-xs text-emerald-300 my-3">
+                <code className={className} {...props}>{children}</code>
+              </pre>
+            ) : (
+              <code className="bg-slate-800/80 text-emerald-300 px-1.5 py-0.5 rounded text-xs" {...props}>{children}</code>
+            );
+          }
+        }}
+      >
+        {clean}
+      </ReactMarkdown>
+    </div>
+  );
 }
 
 export default function App() {
@@ -328,23 +374,27 @@ export default function App() {
   useEffect(() => {
     if (activeTab === 'flashcards') {
       loadFlashcards(flashcardCourse);
+    } else if (activeTab === 'chat') {
+      fetchSavedChats();
     }
   }, [activeTab, flashcardCourse]);
 
   // Cheatsheet Generator
   const handleGenerateCheatsheet = async () => {
-    if (!csCourse) return;
+    const targetCourse = csCourse || (courses.length > 0 ? courses[0] : 'Machine Learning');
     setIsGeneratingCs(true);
+    setCsContent('');
     try {
       const res = await fetch('/api/cheatsheet', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ course: csCourse, model: selectedModel }),
+        body: JSON.stringify({ course: targetCourse, model: selectedModel }),
       });
       const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || 'Failed to generate cheatsheet');
       setCsContent(data.content || '');
-    } catch (e) {
-      alert('Error generating cheatsheet');
+    } catch (e: any) {
+      alert(`Error generating cheatsheet: ${e.message || e}`);
     } finally {
       setIsGeneratingCs(false);
     }
@@ -397,15 +447,15 @@ export default function App() {
                 onChange={(e) => setSelectedModel(e.target.value)}
                 className="bg-transparent text-emerald-400 font-medium focus:outline-none cursor-pointer"
               >
-                <option value="gemini-3.6-flash" className="bg-slate-900 text-slate-100">🧠 Auto: Tiered Routing (Recommended)</option>
-                <option value="gemini-3.7-flash" className="bg-slate-900 text-slate-100">⚡ Gemini 3.7 Flash</option>
+                <option value="gemini-3.7-flash" className="bg-slate-900 text-slate-100">🧠 Auto: Tiered Routing (3.7 Flash SOTA)</option>
+                <option value="gemini-3.7-flash" className="bg-slate-900 text-slate-100">⚡ Gemini 3.7 Flash (SOTA Reasoning)</option>
                 <option value="gemini-3.6-flash" className="bg-slate-900 text-slate-100">⚡ Gemini 3.6 Flash (Audio & Math)</option>
-                <option value="gemini-3.5-flash" className="bg-slate-900 text-slate-100">⚡ Gemini 3.5 Flash</option>
-                <option value="gemini-3.0-flash" className="bg-slate-900 text-slate-100">⚡ Gemini 3.0 Flash</option>
-                <option value="gemini-2.5-flash" className="bg-slate-900 text-slate-100">⚡ Gemini 2.5 Flash</option>
-                <option value="gemini-3.5-flash-lite" className="bg-slate-900 text-slate-100">🚀 Gemini 3.5 Flash-Lite</option>
                 <option value="gemini-3.1-flash-lite" className="bg-slate-900 text-slate-100">🚀 Gemini 3.1 Flash-Lite (Fast Slides/PDF)</option>
-                <option value="gemini-2.5-flash-lite" className="bg-slate-900 text-slate-100">🚀 Gemini 2.5 Flash-Lite</option>
+                <option value="gemini-3.5-flash" className="bg-slate-900 text-slate-100">⚡ Gemini 3.5 Flash</option>
+                <option value="gemini-3.5-flash-lite" className="bg-slate-900 text-slate-100">🚀 Gemini 3.5 Flash-Lite</option>
+                <option value="gemini-2.5-flash" className="bg-slate-900 text-slate-100">⚡ Gemini 2.5 Flash</option>
+                <option value="gemini-flash-latest" className="bg-slate-900 text-slate-100">✨ Gemini Flash Latest</option>
+                <option value="gemini-flash-lite-latest" className="bg-slate-900 text-slate-100">✨ Gemini Flash-Lite Latest</option>
               </select>
             </div>
 
@@ -592,18 +642,14 @@ export default function App() {
             </div>
 
             {uploadResult && (
-              <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6">
+              <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl">
                 <div className="flex items-center justify-between mb-4 border-b border-slate-800 pb-3">
                   <h3 className="text-base font-semibold text-emerald-400 flex items-center gap-2">
                     <CheckCircle2 className="w-5 h-5" />
                     Generated Structured Academic Notes
                   </h3>
                 </div>
-                <div className="prose prose-invert max-w-none text-slate-300 text-sm leading-relaxed">
-                  <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]}>
-                    {uploadResult}
-                  </ReactMarkdown>
-                </div>
+                <AcademicMarkdown content={uploadResult} />
               </div>
             )}
           </div>
@@ -629,21 +675,23 @@ export default function App() {
               </div>
 
               <div className="flex-1 overflow-y-auto space-y-2 pr-1">
-                {savedThreads.length === 0 ? (
+                {!savedThreads || savedThreads.length === 0 ? (
                   <p className="text-xs text-slate-500 text-center py-6">No saved conversations yet.</p>
                 ) : (
                   savedThreads.map((t) => (
                     <div
-                      key={t.session_id}
+                      key={t.session_id || Math.random()}
                       onClick={() => {
-                        setChatHistory(t.messages.map((m) => ({ role: m.role, content: m.message })));
+                        if (t.messages && Array.isArray(t.messages)) {
+                          setChatHistory(t.messages.map((m) => ({ role: m.role, content: m.message })));
+                        }
                       }}
                       className="p-3 bg-slate-950/60 hover:bg-slate-800/60 border border-slate-800/80 rounded-xl cursor-pointer transition text-xs"
                     >
-                      <div className="font-medium text-slate-200 truncate">{t.preview}</div>
+                      <div className="font-medium text-slate-200 truncate">{t.preview || 'Conversation'}</div>
                       <div className="text-slate-500 mt-1 flex justify-between">
-                        <span>{t.first_message_time.split('T')[0]}</span>
-                        <span>{t.message_count} msgs</span>
+                        <span>{t.first_message_time ? t.first_message_time.split('T')[0] : 'Today'}</span>
+                        <span>{t.message_count || 1} msgs</span>
                       </div>
                     </div>
                   ))
@@ -696,9 +744,11 @@ export default function App() {
                             : 'bg-slate-950/80 text-slate-200 border border-slate-800/80 shadow-md'
                         }`}
                       >
-                        <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]}>
-                          {msg.content}
-                        </ReactMarkdown>
+                        {msg.role === 'user' ? (
+                          <p className="text-emerald-100">{msg.content}</p>
+                        ) : (
+                          <AcademicMarkdown content={msg.content} />
+                        )}
                       </div>
                     </div>
                   ))
@@ -930,10 +980,8 @@ export default function App() {
               </div>
 
               {csContent && (
-                <div className="bg-slate-950 border border-slate-800 rounded-xl p-6 mt-4 prose prose-invert max-w-none text-slate-300 text-sm">
-                  <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]}>
-                    {csContent}
-                  </ReactMarkdown>
+                <div className="bg-slate-950 border border-slate-800 rounded-xl p-6 mt-4">
+                  <AcademicMarkdown content={csContent} />
                 </div>
               )}
             </div>
@@ -970,10 +1018,8 @@ export default function App() {
               </div>
 
               {recapContent && (
-                <div className="bg-slate-950 border border-slate-800 rounded-xl p-6 mt-4 prose prose-invert max-w-none text-slate-300 text-sm">
-                  <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]}>
-                    {recapContent}
-                  </ReactMarkdown>
+                <div className="bg-slate-950 border border-slate-800 rounded-xl p-6 mt-4">
+                  <AcademicMarkdown content={recapContent} />
                 </div>
               )}
             </div>

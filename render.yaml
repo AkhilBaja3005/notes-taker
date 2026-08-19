@@ -6,7 +6,7 @@ services:
     region: oregon
     plan: free
     buildCommand: "pip install -r requirements.txt"
-    startCommand: "python bot.py"
+    startCommand: "python proxy_server.py"
     envVars:
       - key: PYTHON_VERSION
         value: 3.12.0

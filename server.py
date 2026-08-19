@@ -195,7 +195,30 @@ def chat_exam_tutor(req: ChatRequest):
 
 @app.get("/api/chat/history")
 def get_chat_history(search: Optional[str] = None):
-    threads = get_all_saved_chats(search_query=search)
+    rows = get_all_saved_chats(search_query=search)
+    sessions_map = {}
+    for r in rows:
+        sid = r.get("session_id") or "default"
+        if sid not in sessions_map:
+            sessions_map[sid] = {
+                "session_id": sid,
+                "first_message_time": r.get("timestamp") or datetime.datetime.now().isoformat(),
+                "message_count": 0,
+                "preview": r.get("content", "")[:60],
+                "messages": []
+            }
+        sessions_map[sid]["messages"].append({
+            "role": r.get("role", "user"),
+            "message": r.get("content", ""),
+            "created_at": r.get("timestamp", "")
+        })
+        sessions_map[sid]["message_count"] += 1
+
+    threads = list(sessions_map.values())
+    # Reverse messages inside each thread so they read chronologically (user prompt first, then assistant answer)
+    for t in threads:
+        t["messages"].reverse()
+
     return {"threads": threads}
 
 @app.post("/api/save_chat")

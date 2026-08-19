@@ -317,13 +317,12 @@ def main():
     print("[*] Launching Watcher Daemon (watcher.py)...")
     start_service("Watcher", [python_executable, "-u", "watcher.py"])
 
-    # 4. Start Telegram Bot Poller (Enabled locally, disabled on HF when Render runs the poller)
-    run_bot_poller = os.environ.get("RUN_BOT_POLLER", "false").lower() in ("true", "1", "yes")
-    if run_bot_poller and os.environ.get("TELEGRAM_BOT_TOKEN"):
-        print("[*] Launching Telegram Bot Poller (bot.py)...")
+    # 4. Start Telegram Bot Poller on Hugging Face (Routed via Render Proxy)
+    if os.environ.get("TELEGRAM_BOT_TOKEN"):
+        print("[*] Launching Telegram Bot Poller (bot.py) on Hugging Face via Render Proxy Gateway...")
         start_service("TelegramBot", [python_executable, "-u", "bot.py"])
     else:
-        print("[*] Telegram Bot Polling handled by Render Web Service (FastAPI Hub Webhook Gateway active).")
+        print("[!] TELEGRAM_BOT_TOKEN not configured - running Web UI & Watcher only.")
 
     # 5. Start High-Performance FastAPI + React Web Server (Port 7860 on HF Spaces / 8501 local)
     port = int(os.environ.get("STREAMLIT_SERVER_PORT", "7860"))
