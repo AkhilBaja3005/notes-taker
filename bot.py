@@ -496,7 +496,8 @@ def main():
             drop_pending_updates=False,
             bootstrap_retries=-1,
             timeout=30,
-            poll_interval=1.0
+            poll_interval=1.0,
+            stop_signals=None
         )
     except Exception as e:
         print(f"[!] Critical Telegram Polling Error: {e}")
