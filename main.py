@@ -167,7 +167,23 @@ def send_startup_deployment_notification():
     if not token or not target_users:
         return
 
-    import httpx
+    import asyncio
+    from telegram import Bot
+    from telegram.request import HTTPXRequest
+
+    proxy_base_url = os.environ.get("TELEGRAM_API_BASE_URL", "").strip()
+    if proxy_base_url and not proxy_base_url.endswith("/bot"):
+        proxy_base_url = proxy_base_url.rstrip("/") + "/bot"
+
+    request_client = HTTPXRequest(
+        connect_timeout=60.0,
+        read_timeout=60.0,
+        write_timeout=60.0,
+        pool_timeout=60.0
+    )
+
+    bot_builder = Bot(token=token, request=request_client, base_url=proxy_base_url if proxy_base_url else None)
+
     boot_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     msg_text = (
         f"🚀 *New Deployment Detected & Online!*\n\n"
@@ -178,38 +194,27 @@ def send_startup_deployment_notification():
         f"• **Dashboard**: [abaja-notes-taker.hf.space](https://abaja-notes-taker.hf.space)\n\n"
         f"💬 Send `/menu` or ask any question to begin!"
     )
-    proxy_base_url = os.environ.get("TELEGRAM_API_BASE_URL", "").strip().rstrip("/")
-    api_root = proxy_base_url if proxy_base_url else "https://api.telegram.org"
 
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        "Accept": "application/json",
-        "Content-Type": "application/json",
-        "Connection": "close"
-    }
-
-    for uid in target_users:
-        for attempt in range(1, 4):
-            try:
-                with httpx.Client(http2=False, timeout=30.0, headers=headers) as client:
-                    url = f"{api_root}/bot{token}/sendMessage"
-                    resp = client.post(
-                        url,
-                        json={
-                            "chat_id": uid,
-                            "text": msg_text,
-                            "parse_mode": "Markdown",
-                            "disable_web_page_preview": True
-                        }
+    async def _send_all():
+        for uid in target_users:
+            for attempt in range(1, 4):
+                try:
+                    await bot_builder.send_message(
+                        chat_id=int(uid),
+                        text=msg_text,
+                        parse_mode="Markdown",
+                        disable_web_page_preview=True
                     )
-                    if resp.status_code == 200:
-                        print(f"[+] Startup deployment notification sent to Telegram user {uid}!")
-                        break
-                    else:
-                        print(f"[!] Notification response status {resp.status_code}: {resp.text}")
-            except Exception as e:
-                print(f"[!] Deployment notification attempt {attempt} for {uid}: {e}")
-                time.sleep(5)
+                    print(f"[+] Startup deployment notification sent to Telegram user {uid}!")
+                    break
+                except Exception as e:
+                    print(f"[!] Deployment notification attempt {attempt} for {uid}: {e}")
+                    await asyncio.sleep(5)
+
+    try:
+        asyncio.run(_send_all())
+    except Exception as e:
+        print(f"[!] Async notification runner notice: {e}")
 
 def start_service(name: str, cmd: list) -> subprocess.Popen:
     """Spawns a managed process with explicit environment inheritance and registers it for self-healing supervision."""
