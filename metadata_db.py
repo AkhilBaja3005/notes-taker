@@ -1,12 +1,18 @@
+import os
 import sqlite3
 import datetime
 from pathlib import Path
 import frontmatter
 
-DB_PATH = Path("./metadata.db")
+def get_db_path() -> Path:
+    """Returns /data/metadata.db if HF Persistent Bucket is mounted, otherwise ./metadata.db."""
+    if Path("/data").exists() and os.access(Path("/data"), os.W_OK):
+        return Path("/data/metadata.db")
+    return Path(os.environ.get("METADATA_DB_PATH", "./metadata.db"))
 
 def init_db():
-    conn = sqlite3.connect(DB_PATH)
+    db_path = get_db_path()
+    conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS lecture_metadata (
@@ -42,7 +48,7 @@ def init_db():
 
 def save_chat_message(user_id: int, role: str, message: str, session_id: str = "default"):
     init_db()
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(get_db_path())
     cursor = conn.cursor()
     cursor.execute("""
         INSERT INTO chat_history (user_id, session_id, role, message)
@@ -53,7 +59,7 @@ def save_chat_message(user_id: int, role: str, message: str, session_id: str = "
 
 def get_recent_chat_history(user_id: int, session_id: str = "default", limit: int = 10) -> list[dict]:
     init_db()
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(get_db_path())
     cursor = conn.cursor()
     cursor.execute("""
         SELECT role, message FROM chat_history
@@ -67,7 +73,7 @@ def get_recent_chat_history(user_id: int, session_id: str = "default", limit: in
 
 def clear_user_chat_history(user_id: int, session_id: str = "default"):
     init_db()
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(get_db_path())
     cursor = conn.cursor()
     cursor.execute("DELETE FROM chat_history WHERE user_id = ? AND session_id = ?", (user_id, session_id))
     conn.commit()
@@ -90,7 +96,7 @@ def index_lecture_file(file_path: Path):
         has_flashcards = 1 if "## 4. Key Concept Q&A Flashcards" in content else 0
         has_theorems = 1 if any(w in content.lower() for w in ["theorem", "proof", "derivation"]) else 0
 
-        conn = sqlite3.connect(DB_PATH)
+        conn = sqlite3.connect(get_db_path())
         cursor = conn.cursor()
         cursor.execute("""
             INSERT INTO lecture_metadata (file_name, course, topic, lecture_date, model_used, source_file, tags, has_flashcards, has_theorems)
@@ -118,7 +124,7 @@ def index_all_lectures(lectures_dir: Path):
 
 def query_courses() -> list[str]:
     init_db()
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(get_db_path())
     cursor = conn.cursor()
     cursor.execute("SELECT DISTINCT course FROM lecture_metadata ORDER BY course ASC")
     rows = [r[0] for r in cursor.fetchall() if r[0]]
