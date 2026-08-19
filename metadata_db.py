@@ -54,6 +54,37 @@ def init_db():
         )
     """)
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_user_chat ON chat_history (user_id, session_id)")
+    # Persistent Settings Schema
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS app_settings (
+            key TEXT PRIMARY KEY,
+            value TEXT,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    conn.commit()
+    conn.close()
+
+def get_setting(key: str, default: str = None) -> str:
+    init_db()
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT value FROM app_settings WHERE key = ?", (key,))
+    row = cursor.fetchone()
+    conn.close()
+    return row[0] if row else default
+
+def set_setting(key: str, value: str):
+    init_db()
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        INSERT INTO app_settings (key, value, updated_at)
+        VALUES (?, ?, CURRENT_TIMESTAMP)
+        ON CONFLICT(key) DO UPDATE SET
+            value=excluded.value,
+            updated_at=CURRENT_TIMESTAMP
+    """, (key, value))
     conn.commit()
     conn.close()
 
@@ -164,6 +195,18 @@ def query_courses() -> list[str]:
     conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute("SELECT DISTINCT course FROM lecture_metadata ORDER BY course ASC")
+    rows = [r[0] for r in cursor.fetchall() if r[0]]
+    conn.close()
+    return rows
+
+def query_topics(course: str = None) -> list[str]:
+    init_db()
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    if course and course.strip() and course != "All Courses":
+        cursor.execute("SELECT DISTINCT topic FROM lecture_metadata WHERE course = ? ORDER BY topic ASC", (course.strip(),))
+    else:
+        cursor.execute("SELECT DISTINCT topic FROM lecture_metadata ORDER BY topic ASC")
     rows = [r[0] for r in cursor.fetchall() if r[0]]
     conn.close()
     return rows

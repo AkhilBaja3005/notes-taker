@@ -155,17 +155,83 @@ export default function App() {
   const [csContent, setCsContent] = useState('');
   const [isGeneratingCs, setIsGeneratingCs] = useState(false);
 
-  // Recap State
+  // Multi-Scope Briefing State
+  const [briefingScope, setBriefingScope] = useState<'date' | 'course' | 'topic'>('date');
   const [recapDate, setRecapDate] = useState(new Date().toISOString().split('T')[0]);
+  const [recapCourse, setRecapCourse] = useState('');
+  const [recapTopic, setRecapTopic] = useState('');
+  const [allTopics, setAllTopics] = useState<string[]>([]);
   const [recapContent, setRecapContent] = useState('');
   const [isGeneratingRecap, setIsGeneratingRecap] = useState(false);
+  const [autoSendTelegram, setAutoSendTelegram] = useState<boolean>(true);
+  const [briefingTime, setBriefingTime] = useState<string>('21:00');
+  const [userTz, setUserTz] = useState<string>('Asia/Kolkata');
 
   // Load initial courses & system status
   useEffect(() => {
     fetchCourses();
     fetchStatus();
     fetchSavedChats();
+    fetchSettings();
   }, []);
+
+  const fetchSettings = async () => {
+    try {
+      // Auto-detect browser timezone
+      const detectedTz = Intl.DateTimeFormat().resolvedOptions().timeZone || 'Asia/Kolkata';
+      setUserTz(detectedTz);
+
+      const res = await fetch('/api/settings');
+      const data = await res.json();
+      if (typeof data.auto_send_telegram_briefing === 'boolean') {
+        setAutoSendTelegram(data.auto_send_telegram_briefing);
+      }
+      if (data.briefing_scheduled_time) {
+        setBriefingTime(data.briefing_scheduled_time);
+      }
+
+      // Sync detected browser timezone to server to unify all container schedules
+      await fetch('/api/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key: 'user_timezone', value: detectedTz }),
+      });
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const handleToggleAutoSend = async (enabled: boolean) => {
+    setAutoSendTelegram(enabled);
+    try {
+      await fetch('/api/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          key: 'auto_send_telegram_briefing',
+          value: enabled ? 'true' : 'false'
+        }),
+      });
+    } catch (e) {
+      console.error('Failed to persist setting', e);
+    }
+  };
+
+  const handleUpdateTime = async (newTime: string) => {
+    setBriefingTime(newTime);
+    try {
+      await fetch('/api/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          key: 'briefing_scheduled_time',
+          value: newTime
+        }),
+      });
+    } catch (e) {
+      console.error('Failed to persist scheduled time', e);
+    }
+  };
 
   const fetchCourses = async () => {
     try {
@@ -400,19 +466,54 @@ export default function App() {
     }
   };
 
-  // Daily Recap Generator
+  const fetchTopics = async (course?: string) => {
+    try {
+      const url = course ? `/api/topics?course=${encodeURIComponent(course)}` : '/api/topics';
+      const res = await fetch(url);
+      const data = await res.json();
+      setAllTopics(data.topics || []);
+      if (data.topics && data.topics.length > 0 && !recapTopic) {
+        setRecapTopic(data.topics[0]);
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  useEffect(() => {
+    if (activeTab === 'recap') {
+      fetchTopics(recapCourse);
+    }
+  }, [activeTab, recapCourse]);
+
+  // Multi-Scope Briefing Generator
   const handleGenerateRecap = async () => {
     setIsGeneratingRecap(true);
+    setRecapContent('');
     try {
+      const payload: any = {
+        scope: briefingScope,
+        model: selectedModel,
+      };
+      if (briefingScope === 'course') {
+        payload.course = recapCourse || (courses.length > 0 ? courses[0] : 'Machine Learning');
+      } else if (briefingScope === 'topic') {
+        payload.topic = recapTopic || (allTopics.length > 0 ? allTopics[0] : 'Backpropagation');
+        payload.course = recapCourse;
+      } else {
+        payload.date = recapDate;
+      }
+
       const res = await fetch('/api/recap', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ date: recapDate, model: selectedModel }),
+        body: JSON.stringify(payload),
       });
       const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || 'Failed to generate briefing');
       setRecapContent(data.content || '');
-    } catch (e) {
-      alert('Error generating recap');
+    } catch (e: any) {
+      alert(`Error generating briefing: ${e.message || e}`);
     } finally {
       setIsGeneratingRecap(false);
     }
@@ -481,7 +582,7 @@ export default function App() {
             { id: 'search', label: '🧠 Semantic Search', icon: Search },
             { id: 'flashcards', label: '📇 3D Flashcards & Anki', icon: Layers },
             { id: 'cheatsheet', label: '📋 Master Cheatsheet', icon: FileText },
-            { id: 'recap', label: '📅 Daily Briefing', icon: Calendar },
+            { id: 'recap', label: '📅 Briefing', icon: Calendar },
           ].map((tab) => {
             const Icon = tab.icon;
             const active = activeTab === tab.id;
@@ -570,35 +671,66 @@ export default function App() {
               </div>
 
               {/* Live Mic Recorder */}
-              <div className="flex items-center justify-between bg-slate-950/60 p-4 rounded-xl border border-slate-800/80 mb-6">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-slate-950/60 p-4 rounded-xl border border-slate-800/80 mb-6">
                 <div className="flex items-center space-x-3">
-                  <div className={`p-2 rounded-lg ${isRecording ? 'bg-rose-500/20 text-rose-400 animate-pulse' : 'bg-slate-800 text-slate-400'}`}>
+                  <div className={`p-2.5 rounded-xl ${isRecording ? 'bg-rose-500/20 text-rose-400 animate-pulse border border-rose-500/40' : audioBlob ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'bg-slate-800 text-slate-400'}`}>
                     <Mic className="w-5 h-5" />
                   </div>
                   <div>
                     <span className="text-sm font-medium text-slate-200 block">Record In-Browser Audio</span>
-                    <span className="text-xs text-slate-500">
-                      {isRecording ? `Recording... ${recordingDuration}s` : audioBlob ? 'Audio note captured' : 'Capture live voice note'}
+                    <span className="text-xs text-slate-400">
+                      {isRecording ? `🔴 Recording in progress... ${recordingDuration}s` : audioBlob ? `✅ Voice note captured (${(audioBlob.size / 1024).toFixed(1)} KB)` : 'Capture live microphone lecture / voice note'}
                     </span>
                   </div>
                 </div>
 
-                <div>
-                  {!isRecording ? (
+                <div className="flex items-center space-x-2">
+                  {!isRecording && !audioBlob && (
                     <button
                       onClick={startRecording}
-                      className="px-4 py-1.5 rounded-lg text-xs font-medium bg-rose-500/20 text-rose-300 hover:bg-rose-500/30 border border-rose-500/40 transition"
+                      className="px-4 py-2 rounded-xl text-xs font-medium bg-rose-500/20 text-rose-300 hover:bg-rose-500/30 border border-rose-500/40 transition flex items-center space-x-1.5"
                     >
-                      Start Mic
+                      <Mic className="w-3.5 h-3.5" />
+                      <span>Start Mic</span>
                     </button>
-                  ) : (
+                  )}
+
+                  {isRecording && (
                     <button
                       onClick={stopRecording}
-                      className="px-4 py-1.5 rounded-lg text-xs font-medium bg-slate-800 text-slate-200 hover:bg-slate-700 flex items-center space-x-1 transition"
+                      className="px-4 py-2 rounded-xl text-xs font-medium bg-rose-600 text-white hover:bg-rose-500 flex items-center space-x-1.5 transition shadow-lg shadow-rose-600/30"
                     >
-                      <Square className="w-3 h-3 text-rose-500" />
-                      <span>Stop</span>
+                      <Square className="w-3.5 h-3.5" />
+                      <span>Stop & Review ({recordingDuration}s)</span>
                     </button>
+                  )}
+
+                  {!isRecording && audioBlob && (
+                    <div className="flex items-center gap-2">
+                      <audio
+                        src={URL.createObjectURL(audioBlob)}
+                        controls
+                        className="h-8 max-w-[200px] sm:max-w-[240px] rounded-lg bg-slate-900"
+                      />
+                      <a
+                        href={URL.createObjectURL(audioBlob)}
+                        download={`lecture_recording_${new Date().toISOString().replace(/[:.]/g, '-')}.wav`}
+                        className="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 transition"
+                        title="Download Recorded WAV"
+                      >
+                        <Download className="w-4 h-4" />
+                      </a>
+                      <button
+                        onClick={() => {
+                          setAudioBlob(null);
+                          setRecordingDuration(0);
+                        }}
+                        className="p-2 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 transition text-xs"
+                        title="Discard & Re-record"
+                      >
+                        Clear
+                      </button>
+                    </div>
                   )}
                 </div>
               </div>
@@ -988,37 +1120,191 @@ export default function App() {
           </div>
         )}
 
-        {/* ===================== TAB: RECAP ===================== */}
+        {/* ===================== TAB: BRIEFING / RECAP ===================== */}
         {activeTab === 'recap' && (
           <div className="space-y-6">
             <div className="bg-slate-900/70 border border-slate-800 rounded-2xl p-6">
-              <div className="flex items-center justify-between mb-4">
+              {/* Header & 3-Way Mode Selector */}
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6 border-b border-slate-800 pb-5">
                 <div>
                   <h2 className="text-lg font-semibold text-slate-100 flex items-center gap-2">
                     <Calendar className="w-5 h-5 text-emerald-400" />
-                    Daily Multi-Subject Briefing
+                    Briefing
                   </h2>
-                  <p className="text-xs text-slate-400">Generate executive summaries of all lectures recorded on a specific date.</p>
+                  <p className="text-xs text-slate-400">Synthesize cross-course daily executive summaries, semester course progressions, or deep topic derivations.</p>
                 </div>
-                <div className="flex items-center space-x-3">
-                  <input
-                    type="date"
-                    value={recapDate}
-                    onChange={(e) => setRecapDate(e.target.value)}
-                    className="bg-slate-950 border border-slate-800 text-slate-200 text-xs rounded-xl px-3 py-2 focus:outline-none"
-                  />
+
+                {/* 3-Way Scope Toggle Switch */}
+                <div className="flex items-center bg-slate-950 p-1 rounded-xl border border-slate-800 text-xs">
                   <button
-                    onClick={handleGenerateRecap}
-                    disabled={isGeneratingRecap}
-                    className="px-4 py-2 bg-emerald-500 text-slate-950 font-medium text-xs rounded-xl hover:bg-emerald-400 transition disabled:opacity-50"
+                    onClick={() => setBriefingScope('date')}
+                    className={`px-3 py-1.5 rounded-lg font-medium transition ${
+                      briefingScope === 'date'
+                        ? 'bg-emerald-500 text-slate-950 shadow-sm'
+                        : 'text-slate-400 hover:text-slate-200'
+                    }`}
                   >
-                    {isGeneratingRecap ? 'Generating...' : 'Generate Recap'}
+                    📅 By Date (Daily)
+                  </button>
+                  <button
+                    onClick={() => setBriefingScope('course')}
+                    className={`px-3 py-1.5 rounded-lg font-medium transition ${
+                      briefingScope === 'course'
+                        ? 'bg-emerald-500 text-slate-950 shadow-sm'
+                        : 'text-slate-400 hover:text-slate-200'
+                    }`}
+                  >
+                    📚 By Course
+                  </button>
+                  <button
+                    onClick={() => setBriefingScope('topic')}
+                    className={`px-3 py-1.5 rounded-lg font-medium transition ${
+                      briefingScope === 'topic'
+                        ? 'bg-emerald-500 text-slate-950 shadow-sm'
+                        : 'text-slate-400 hover:text-slate-200'
+                    }`}
+                  >
+                    🎯 By Topic
                   </button>
                 </div>
               </div>
 
+              {/* Dynamic Scope Parameter Selection */}
+              <div className="flex flex-wrap items-center justify-between gap-4 bg-slate-950/60 p-4 rounded-xl border border-slate-800/80 mb-6">
+                <div className="flex flex-wrap items-center gap-3">
+                  {briefingScope === 'date' && (
+                    <div className="flex items-center space-x-2">
+                      <span className="text-xs text-slate-400">Target Date:</span>
+                      <input
+                        type="date"
+                        value={recapDate}
+                        onChange={(e) => setRecapDate(e.target.value)}
+                        className="bg-slate-900 border border-slate-800 text-slate-200 text-xs rounded-lg px-3 py-1.5 focus:outline-none"
+                      />
+                    </div>
+                  )}
+
+                  {briefingScope === 'course' && (
+                    <div className="flex items-center space-x-2">
+                      <span className="text-xs text-slate-400">Select Course:</span>
+                      <select
+                        value={recapCourse}
+                        onChange={(e) => setRecapCourse(e.target.value)}
+                        className="bg-slate-900 border border-slate-800 text-emerald-400 text-xs rounded-lg px-3 py-1.5 focus:outline-none"
+                      >
+                        {courses.map((c) => (
+                          <option key={c} value={c}>{c}</option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+
+                  {briefingScope === 'topic' && (
+                    <div className="flex flex-wrap items-center gap-3">
+                      <div className="flex items-center space-x-2">
+                        <span className="text-xs text-slate-400">Course Filter:</span>
+                        <select
+                          value={recapCourse}
+                          onChange={(e) => {
+                            setRecapCourse(e.target.value);
+                            fetchTopics(e.target.value);
+                          }}
+                          className="bg-slate-900 border border-slate-800 text-slate-300 text-xs rounded-lg px-3 py-1.5 focus:outline-none"
+                        >
+                          <option value="">All Courses</option>
+                          {courses.map((c) => (
+                            <option key={c} value={c}>{c}</option>
+                          ))}
+                        </select>
+                      </div>
+
+                      <div className="flex items-center space-x-2">
+                        <span className="text-xs text-slate-400">Topic:</span>
+                        {allTopics.length > 0 ? (
+                          <select
+                            value={recapTopic}
+                            onChange={(e) => setRecapTopic(e.target.value)}
+                            className="bg-slate-900 border border-slate-800 text-emerald-400 text-xs rounded-lg px-3 py-1.5 focus:outline-none"
+                          >
+                            {allTopics.map((t) => (
+                              <option key={t} value={t}>{t}</option>
+                            ))}
+                          </select>
+                        ) : (
+                          <input
+                            type="text"
+                            value={recapTopic}
+                            onChange={(e) => setRecapTopic(e.target.value)}
+                            placeholder="e.g. Backpropagation"
+                            className="bg-slate-900 border border-slate-800 text-emerald-400 text-xs rounded-lg px-3 py-1.5 focus:outline-none"
+                          />
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                <button
+                  onClick={handleGenerateRecap}
+                  disabled={isGeneratingRecap}
+                  className="px-5 py-2 bg-emerald-500 text-slate-950 font-medium text-xs rounded-xl hover:bg-emerald-400 transition disabled:opacity-50 flex items-center space-x-2 shadow-lg shadow-emerald-500/20"
+                >
+                  {isGeneratingRecap ? (
+                    <>
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                      <span>Synthesizing Briefing...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Sparkles className="w-3.5 h-3.5" />
+                      <span>Generate Briefing</span>
+                    </>
+                  )}
+                </button>
+              </div>
+
+              {/* Automated Telegram Dispatch Schedule Control & Timezone Sync */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-slate-950/40 p-4 rounded-xl border border-slate-800/60 mb-6">
+                <div className="flex items-center space-x-3">
+                  <div className={`p-2.5 rounded-xl ${autoSendTelegram ? 'bg-sky-500/20 text-sky-400 border border-sky-500/30' : 'bg-slate-800 text-slate-500'}`}>
+                    <Calendar className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <span className="text-xs font-semibold text-slate-200 block">🌙 Automated Daily Study Briefing</span>
+                    <span className="text-[11px] text-slate-400 block">
+                      {autoSendTelegram 
+                        ? `Active — Pushes evening study briefing to your Telegram bot at ${briefingTime} (${userTz}).`
+                        : 'Disabled — Briefings will only generate on-demand.'}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="flex items-center space-x-3">
+                  <div className="flex items-center space-x-1.5 bg-slate-900 px-3 py-1.5 rounded-lg border border-slate-800">
+                    <span className="text-xs text-slate-400">Time:</span>
+                    <input
+                      type="time"
+                      value={briefingTime}
+                      onChange={(e) => handleUpdateTime(e.target.value)}
+                      className="bg-transparent text-xs text-emerald-400 font-semibold focus:outline-none cursor-pointer"
+                    />
+                  </div>
+
+                  <label className="relative inline-flex items-center cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={autoSendTelegram}
+                      onChange={(e) => handleToggleAutoSend(e.target.checked)}
+                      className="sr-only peer"
+                    />
+                    <div className="w-10 h-5 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-500"></div>
+                  </label>
+                </div>
+              </div>
+
+              {/* Render Briefing Result */}
               {recapContent && (
-                <div className="bg-slate-950 border border-slate-800 rounded-xl p-6 mt-4">
+                <div className="bg-slate-950 border border-slate-800 rounded-xl p-6 mt-4 shadow-xl">
                   <AcademicMarkdown content={recapContent} />
                 </div>
               )}

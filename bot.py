@@ -21,6 +21,7 @@ from telegram.ext import (
 from ingest_audio import process_file
 from core_engine import (
     generate_daily_recap,
+    generate_multi_scope_briefing,
     query_exam_syllabus,
     generate_with_fallback,
     SUPPORTED_MODELS,
@@ -225,21 +226,38 @@ async def anki_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def recap_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not check_auth(update.effective_user.id):
         return
-    if context.args:
-        try:
-            target_date = datetime.date.fromisoformat(context.args[0])
-        except ValueError:
-            await update.message.reply_text("Invalid date format. Use YYYY-MM-DD.")
-            return
+    
+    arg_text = " ".join(context.args).strip() if context.args else ""
+    
+    # 1. Detect scope
+    if not arg_text:
+        scope = "date"
+        target = datetime.date.today().isoformat()
+        prompt_label = f"today ({target})"
+    elif re.match(r"^\d{4}-\d{2}-\d{2}$", arg_text):
+        scope = "date"
+        target = arg_text
+        prompt_label = f"date {target}"
     else:
-        target_date = datetime.date.today()
+        # Check if arg matches a known course or topic
+        courses = query_courses()
+        matching_course = next((c for c in courses if c.lower() == arg_text.lower()), None)
+        if matching_course:
+            scope = "course"
+            target = matching_course
+            prompt_label = f"course: *{matching_course}*"
+        else:
+            scope = "topic"
+            target = arg_text
+            prompt_label = f"topic: *{target}*"
 
-    await update.message.reply_text(f"⏳ Generating daily recap for {target_date}...")
+    status_msg = await update.message.reply_text(f"⏳ Generating Academic Briefing for {prompt_label} with Gemini 3.7 Flash...", parse_mode="Markdown")
     try:
-        recap = generate_daily_recap(target_date, model=current_bot_model)
+        recap = generate_multi_scope_briefing(scope=scope, target=target, model=current_bot_model)
+        await status_msg.delete()
         await send_smart_message(update, recap)
     except Exception as e:
-        await update.message.reply_text(f"❌ Error: {e}")
+        await status_msg.edit_text(f"❌ Error generating briefing: {e}")
 
 async def exam_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not check_auth(update.effective_user.id):

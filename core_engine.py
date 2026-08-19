@@ -177,23 +177,91 @@ def get_notes_in_date_range(course: str, start_date: datetime.date, end_date: da
             continue
     return "\n\n---\n\n".join(notes)
 
-def generate_daily_recap(target_date: datetime.date, model: str = None) -> str:
-    context = get_notes_for_date(target_date)
-    if not context:
-        return f"No lecture records found for {target_date.isoformat()}."
+def get_notes_for_topic(topic: str, course: str = None) -> str:
+    notes = []
+    clean_target_topic = topic.replace("[[", "").replace("]]", "").strip().lower()
+    clean_target_course = course.replace("[[", "").replace("]]", "").strip().lower() if course else None
 
-    prompt = f"""
-    You are an executive academic tutor. Synthesize a comprehensive briefing from all classes recorded on {target_date.isoformat()}:
-    
-    {context}
-    
-    Format your response with:
-    1. **Master Daily Overview** (High-level synthesis connecting today's topics)
-    2. **Key Formulas, Theorems & Proofs** (Organized by Course, in clean standard LaTeX. Always enclose all multi-line aligned equations in '$$\\begin{{aligned}} ... \\end{{aligned}}$$'.)
-    3. **Immediate Action Items & Upcoming Deadlines** (Assignments, reading mentions, lab deadlines)
+    for file_path in sorted(LECTURES_DIR.glob("*.md")):
+        if file_path.name.endswith("_MOC.md"):
+            continue
+        try:
+            post = frontmatter.load(file_path)
+            raw_topic = str(post.get('topic', '')).replace("[[", "").replace("]]", "").strip()
+            raw_course = str(post.get('course', '')).replace("[[", "").replace("]]", "").strip()
+            
+            match_topic = clean_target_topic in raw_topic.lower() or raw_topic.lower() in clean_target_topic
+            match_course = True if not clean_target_course else (clean_target_course == raw_course.lower())
+
+            if match_topic and match_course:
+                notes.append(f"### Course: {raw_course} | Topic: {raw_topic} ({post.get('date', 'N/A')})\n{post.content}")
+        except Exception:
+            continue
+    return "\n\n---\n\n".join(notes)
+
+def generate_multi_scope_briefing(scope: str, target: str, course: str = None, model: str = None) -> str:
     """
-    
+    Synthesizes academic briefings across 3 flexible scopes:
+    - scope='date': Daily Multi-Subject Briefing (target: YYYY-MM-DD)
+    - scope='course': Semester Course Overview & Milestones (target: Course Name)
+    - scope='topic': Topic Deep Dive & Proof Synthesis (target: Topic Name)
+    """
+    if scope == "course":
+        start_d = datetime.date.today() - datetime.timedelta(days=365)
+        end_d = datetime.date.today()
+        context = get_notes_in_date_range(target, start_d, end_d)
+        if not context:
+            return f"No lecture notes found for course '{target}'."
+        prompt = f"""
+        You are a distinguished STEM professor. Synthesize a comprehensive course-level master briefing for "{target}":
+        
+        {context}
+        
+        Format your response with:
+        1. **Course Conceptual Architecture & Progression** (How topics connect across the semester)
+        2. **Core Formulas, Theorems & Governing Equations** (In clean standard LaTeX $...$ and $$\\begin{{aligned}}...\\end{{aligned}}$$)
+        3. **Key Exam Pitfalls & High-Yield Derivation Targets**
+        4. **Conceptual Mastery Checklist**
+        """
+    elif scope == "topic":
+        context = get_notes_for_topic(target, course=course)
+        if not context:
+            return f"No lecture notes found for topic '{target}'."
+        prompt = f"""
+        You are an expert academic tutor. Generate an exhaustive, high-yield topic deep dive for "{target}":
+        
+        {context}
+        
+        Format your response with:
+        1. **Executive Intuition & Conceptual Definition**
+        2. **Rigorous Mathematical Formulations & Proofs** (In clean standard LaTeX $...$ and $$\\begin{{aligned}}...\\end{{aligned}}$$)
+        3. **Failure Modes, Saturated Regimes & Edge Cases**
+        4. **Professor Emphasis & High-Yield Exam Traps**
+        5. **5-Question Active Recall Mastery Test**
+        """
+    else:  # date scope
+        try:
+            target_date = datetime.date.fromisoformat(target) if isinstance(target, str) else target
+        except Exception:
+            target_date = datetime.date.today()
+        context = get_notes_for_date(target_date)
+        if not context:
+            return f"No lecture records found for {target_date.isoformat()}."
+        prompt = f"""
+        You are an executive academic tutor. Synthesize a comprehensive briefing from all classes recorded on {target_date.isoformat()}:
+        
+        {context}
+        
+        Format your response with:
+        1. **Master Daily Overview** (High-level synthesis connecting today's topics)
+        2. **Key Formulas, Theorems & Proofs** (Organized by Course, in clean standard LaTeX. Always enclose all multi-line aligned equations in '$$\\begin{{aligned}} ... \\end{{aligned}}$$'.)
+        3. **Immediate Action Items & Upcoming Deadlines** (Assignments, reading mentions, lab deadlines)
+        """
+
     return generate_with_fallback(prompt=prompt, requested_model=model)
+
+def generate_daily_recap(target_date: datetime.date, model: str = None) -> str:
+    return generate_multi_scope_briefing(scope="date", target=target_date.isoformat(), model=model)
 
 def query_exam_syllabus(course: str, start_date: datetime.date, end_date: datetime.date, question: str, model: str = None) -> str:
     context = get_notes_in_date_range(course, start_date, end_date)

@@ -226,6 +226,111 @@ def cleanup_old_temp_files(hours_threshold: int = 48):
     if cleaned > 0:
         print(f"[+] Garbage Collector: Cleaned {cleaned} temporary files older than {hours_threshold}h.")
 
+def send_telegram_direct_message(token: str, chat_id: int, text: str):
+    """Utility to deliver messages to Telegram via the configured Proxy or direct API."""
+    import urllib.request
+    import json
+    
+    proxy_base_url = os.environ.get("TELEGRAM_API_BASE_URL", "").strip().rstrip("/")
+    if not proxy_base_url:
+        proxy_base_url = "https://notes-taker-uq8f.onrender.com"
+
+    api_url = f"{proxy_base_url}/bot{token}/sendMessage"
+    
+    # Chunk long messages for Telegram 4096 character limit
+    max_len = 4000
+    chunks = [text[i:i+max_len] for i in range(0, len(text), max_len)] if len(text) > max_len else [text]
+
+    for chunk in chunks:
+        payload = json.dumps({
+            "chat_id": int(chat_id),
+            "text": chunk,
+            "parse_mode": "Markdown",
+            "disable_web_page_preview": True
+        }).encode("utf-8")
+
+        for attempt in range(1, 4):
+            try:
+                req = urllib.request.Request(
+                    api_url,
+                    data=payload,
+                    headers={"Content-Type": "application/json", "Connection": "close"},
+                    method="POST"
+                )
+                with urllib.request.urlopen(req, timeout=25) as resp:
+                    if resp.status == 200:
+                        break
+            except Exception as e:
+                time.sleep(2 * attempt)
+
+def scheduled_evening_briefing_daemon():
+    """
+    Background cron daemon that automatically compiles and dispatches a comprehensive
+    Daily Study Briefing to Telegram at the user-customized local time (e.g. 21:00 / 9:00 PM),
+    unified across all cloud container deployments (Render & Hugging Face).
+    """
+    from core_engine import generate_daily_recap
+    from metadata_db import get_setting
+    
+    token = os.environ.get("TELEGRAM_BOT_TOKEN")
+    allowed_ids = [uid.strip() for uid in os.environ.get("ALLOWED_TELEGRAM_USER_IDS", "").split(",") if uid.strip().isdigit()]
+    target_users = allowed_ids if allowed_ids else ["8327334588"]
+
+    print("[*] Scheduled Evening Briefing Daemon active (Unified Timezone Aware).")
+    last_dispatched_key = None
+
+    while True:
+        try:
+            # 1. Check user toggle preference (defaults to 'true')
+            is_enabled = get_setting("auto_send_telegram_briefing", "true").lower() in ("true", "1", "yes")
+            sched_time_str = get_setting("briefing_scheduled_time", "21:00").strip()
+            user_tz_str = get_setting("user_timezone", "Asia/Kolkata").strip()
+            
+            # Parse target hour and minute
+            try:
+                t_hour, t_minute = map(int, sched_time_str.split(":"))
+            except Exception:
+                t_hour, t_minute = 21, 0
+
+            # Compute current time in user's unified timezone
+            now_dt = datetime.datetime.now(datetime.timezone.utc)
+            try:
+                import zoneinfo
+                tz_obj = zoneinfo.ZoneInfo(user_tz_str)
+                local_now = now_dt.astimezone(tz_obj)
+            except Exception:
+                # Fallback to IST (+05:30) if timezone database is unavailable
+                tz_offset = datetime.timezone(datetime.timedelta(hours=5, minutes=30))
+                local_now = now_dt.astimezone(tz_offset)
+
+            today_str = local_now.strftime("%Y-%m-%d")
+            dispatch_key = f"{today_str}_{t_hour:02d}:{t_minute:02d}"
+
+            # Check if current local time matches configured schedule within 10-min window
+            time_matches = (local_now.hour == t_hour) and (t_minute <= local_now.minute <= t_minute + 9)
+
+            if is_enabled and time_matches and last_dispatched_key != dispatch_key:
+                if token and target_users:
+                    print(f"[*] Briefing Alarm Triggered ({local_now.strftime('%H:%M')} {user_tz_str}): Generating automated study briefing for {today_str}...")
+                    recap_text = generate_daily_recap(target_date=local_now.date())
+                    
+                    header = f"🌙 *Scheduled Academic Briefing ({today_str} • {local_now.strftime('%I:%M %p')})*\n\n"
+                    full_briefing = header + recap_text
+
+                    for uid in target_users:
+                        try:
+                            send_telegram_direct_message(token, int(uid), full_briefing)
+                            print(f"[+] Daily briefing dispatched to Telegram user {uid}!")
+                        except Exception as e:
+                            print(f"[!] Failed to dispatch evening briefing to {uid}: {e}")
+
+                    last_dispatched_key = dispatch_key
+        except Exception as e:
+            print(f"[!] Evening briefing daemon loop notice: {e}")
+
+        # Sleep 30 seconds before next check
+        time.sleep(30)
+
 def send_startup_deployment_notification():
     """Sends a Telegram notification to the owner whenever a new deployment boots up (runs in background with retries)."""
     time.sleep(15)  # Allow container network namespace & services to warm up
@@ -236,53 +341,19 @@ def send_startup_deployment_notification():
     if not token or not target_users:
         return
 
-    import urllib.request
-    import json
-
-    proxy_base_url = os.environ.get("TELEGRAM_API_BASE_URL", "").strip().rstrip("/")
-    if not proxy_base_url:
-        proxy_base_url = "https://summer-band-ce5a.akhilkumarbaja.workers.dev"
-
-    api_url = f"{proxy_base_url}/bot{token}/sendMessage"
-
     boot_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     msg_text = (
         f"🚀 *New Deployment Detected & Online!*\n\n"
         f"• **Status**: `All Services Operational`\n"
         f"• **Boot Time**: `{boot_time}`\n"
-        f"• **Active Engine**: `{os.environ.get('GEMINI_MODEL', 'gemini-3.6-flash')}`\n"
-        f"• **Webhook Gateway**: `Active via Cloudflare Worker`\n"
+        f"• **Active Engine**: `{os.environ.get('GEMINI_MODEL', 'gemini-3.7-flash')}`\n"
+        f"• **Webhook Gateway**: `Active via Render Proxy`\n"
         f"• **Dashboard**: [abaja-notes-taker.hf.space](https://abaja-notes-taker.hf.space)\n\n"
         f"💬 Send `/menu` or ask any question to begin!"
     )
 
     for uid in target_users:
-        payload = json.dumps({
-            "chat_id": int(uid),
-            "text": msg_text,
-            "parse_mode": "Markdown",
-            "disable_web_page_preview": True
-        }).encode("utf-8")
-
-        for attempt in range(1, 5):
-            try:
-                req = urllib.request.Request(
-                    api_url,
-                    data=payload,
-                    headers={
-                        "Content-Type": "application/json",
-                        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-                        "Connection": "close"
-                    },
-                    method="POST"
-                )
-                with urllib.request.urlopen(req, timeout=20) as resp:
-                    if resp.status == 200:
-                        print(f"[+] Startup deployment notification sent to Telegram user {uid}!")
-                        break
-            except Exception as e:
-                print(f"[!] Deployment notification attempt {attempt} for {uid}: {e}")
-                time.sleep(5 * attempt)
+        send_telegram_direct_message(token, int(uid), msg_text)
 
 def start_service(name: str, cmd: list) -> subprocess.Popen:
     """Spawns a managed process with explicit environment inheritance and registers it for self-healing supervision."""
@@ -335,6 +406,9 @@ def main():
 
     # 6. Dispatch Proactive Startup Deployment Notification to Telegram
     threading.Thread(target=send_startup_deployment_notification, daemon=True).start()
+
+    # 7. Start Background Evening Study Briefing Scheduler (9:00 PM Daily)
+    threading.Thread(target=scheduled_evening_briefing_daemon, daemon=True).start()
 
     print("\n[+] All services started successfully with Self-Healing Supervisor active!")
     print("[+] Press Ctrl+C at any time to gracefully terminate all services.\n")

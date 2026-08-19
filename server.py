@@ -7,12 +7,44 @@ import datetime
 from pathlib import Path
 from typing import Optional
 
-from fastapi import FastAPI, UploadFile, File, Form, Query, HTTPException, Request
-from fastapi.responses import JSONResponse, FileResponse, StreamingResponse
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
-from dotenv import load_dotenv
+from fastapi import FastAPI, UploadFile, File, Form, Query, HTTPException, Request, Header, Depends
+
+load_dotenv()
+
+AUTH_API_KEY = os.environ.get("INGEST_API_KEY", "").strip()
+
+def verify_api_key(
+    request: Request,
+    x_api_key: Optional[str] = Header(None, alias="X-API-Key"),
+    authorization: Optional[str] = Header(None)
+):
+    """
+    Validates API Key if INGEST_API_KEY is configured.
+    Allows same-origin browser UI requests seamlessly, while enforcing the API Key
+    for external curl / python / automated programmatic calls.
+    """
+    if not AUTH_API_KEY:
+        return True
+    
+    # If request originates from the same hosted UI (Hugging Face / localhost), allow seamlessly
+    referer = request.headers.get("referer", "")
+    sec_fetch_site = request.headers.get("sec-fetch-site", "")
+    if sec_fetch_site in ("same-origin", "same-site") or "hf.space" in referer or "localhost" in referer or "127.0.0.1" in referer:
+        return True
+
+    provided_key = x_api_key
+    if not provided_key and authorization:
+        if authorization.startswith("Bearer "):
+            provided_key = authorization.replace("Bearer ", "").strip()
+        else:
+            provided_key = authorization.strip()
+
+    if provided_key != AUTH_API_KEY:
+        raise HTTPException(
+            status_code=401,
+            detail="Unauthorized: Invalid or missing API Key. Pass 'X-API-Key: <key>' or 'Authorization: Bearer <key>'."
+        )
+    return True
 
 from core_engine import (
     get_available_courses,
@@ -27,8 +59,11 @@ from anki_exporter import generate_anki_deck_for_course, parse_flashcards_from_m
 from vector_store import semantic_search_notes
 from metadata_db import (
     query_courses,
+    query_topics,
     get_all_saved_chats,
     save_chat_message,
+    get_setting,
+    set_setting,
     clear_user_chat_history,
     query_lectures_by_date
 )
@@ -39,7 +74,7 @@ load_dotenv()
 
 app = FastAPI(title="Academic Notes & AI Assistant API", version="2.0.0")
 
-# Enable CORS for local Vite development
+# CORS Setup
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -47,6 +82,12 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+@app.get("/_stcore/health")
+@app.get("/_stcore/host-config")
+@app.get("/health")
+def health_check():
+    return {"status": "healthy", "service": "fastapi_react_hub"}
 
 LECTURES_DIR = Path(os.environ.get("LECTURES_DIR", "./lectures")).resolve()
 INCOMING_DIR = Path(os.environ.get("WATCH_DIR", "./incoming_audio")).resolve()
@@ -68,7 +109,10 @@ class CheatsheetRequest(BaseModel):
     model: Optional[str] = DEFAULT_MODEL
 
 class RecapRequest(BaseModel):
+    scope: Optional[str] = "date"  # "date", "course", "topic"
     date: Optional[str] = None
+    course: Optional[str] = None
+    topic: Optional[str] = None
     model: Optional[str] = DEFAULT_MODEL
 
 class SaveChatPayload(BaseModel):
@@ -142,7 +186,7 @@ def search_knowledge_base(q: str = Query(..., min_length=2), course: Optional[st
     return {"query": q, "count": len(matches), "results": matches}
 
 # ----------------- Direct Ingestion Upload -----------------
-@app.post("/api/upload")
+@app.post("/api/upload", dependencies=[Depends(verify_api_key)])
 async def upload_lecture_material(
     file: UploadFile = File(...),
     course_name: Optional[str] = Form(""),
@@ -240,14 +284,56 @@ def generate_cheatsheet(req: CheatsheetRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.get("/api/topics")
+def get_topics(course: Optional[str] = None):
+    topics = query_topics(course=course)
+    return {"topics": topics}
+
 @app.post("/api/recap")
-def get_daily_recap(req: RecapRequest):
-    target_d = datetime.date.fromisoformat(req.date) if req.date else datetime.date.today()
+def get_multi_scope_recap(req: RecapRequest):
+    scope = req.scope or "date"
+    if scope == "course":
+        target = req.course or "General"
+    elif scope == "topic":
+        target = req.topic or "Backpropagation"
+    else:
+        target = req.date or datetime.date.today().isoformat()
+
     try:
-        content = generate_daily_recap(target_d, model=req.model)
-        return {"date": target_d.isoformat(), "content": content}
+        content = generate_multi_scope_briefing(
+            scope=scope,
+            target=target,
+            course=req.course,
+            model=req.model
+        )
+        return {
+            "scope": scope,
+            "target": target,
+            "content": content
+        }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+# ----------------- Settings & Automation -----------------
+class SettingPayload(BaseModel):
+    key: str
+    value: str
+
+@app.get("/api/settings")
+def read_settings():
+    auto_send = get_setting("auto_send_telegram_briefing", "true")
+    send_time = get_setting("briefing_scheduled_time", "21:00")
+    user_tz = get_setting("user_timezone", "Asia/Kolkata")
+    return {
+        "auto_send_telegram_briefing": auto_send.lower() in ("true", "1", "yes"),
+        "briefing_scheduled_time": send_time,
+        "user_timezone": user_tz
+    }
+
+@app.post("/api/settings")
+def update_setting(payload: SettingPayload):
+    set_setting(payload.key, payload.value)
+    return {"status": "updated", "key": payload.key, "value": payload.value}
 
 # ----------------- Flashcards & Anki Deck -----------------
 @app.get("/api/flashcards")
