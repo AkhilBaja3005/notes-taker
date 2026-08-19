@@ -168,6 +168,31 @@ def query_courses() -> list[str]:
     conn.close()
     return rows
 
+def query_lectures_by_date(lecture_date: datetime.date) -> list[dict]:
+    init_db()
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    date_str = lecture_date.isoformat()
+    cursor.execute("""
+        SELECT file_name, course, topic, lecture_date, model_used, tags
+        FROM lecture_metadata
+        WHERE lecture_date = ?
+        ORDER BY course ASC, topic ASC
+    """, (date_str,))
+    rows = cursor.fetchall()
+    conn.close()
+    return [
+        {
+            "filename": r[0],
+            "course": r[1],
+            "topic": r[2],
+            "date": r[3],
+            "model_used": r[4],
+            "tags": r[5]
+        }
+        for r in rows
+    ]
+
 if __name__ == "__main__":
     index_all_lectures(Path("./lectures"))
     courses = query_courses()
