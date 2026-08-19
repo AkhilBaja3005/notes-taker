@@ -390,12 +390,14 @@ export default function App() {
                 className="bg-transparent text-emerald-400 font-medium focus:outline-none cursor-pointer"
               >
                 <option value="gemini-3.6-flash" className="bg-slate-900 text-slate-100">🧠 Auto: Tiered Routing (Recommended)</option>
-                <option value="gemini-3.6-flash" className="bg-slate-900 text-slate-100">⚡ Gemini 3.6 Flash (Audio & Dense Math)</option>
-                <option value="gemini-3.1-flash-lite" className="bg-slate-900 text-slate-100">🚀 Gemini 3.1 Flash-Lite (Fast Slides/PDFs)</option>
+                <option value="gemini-3.7-flash" className="bg-slate-900 text-slate-100">⚡ Gemini 3.7 Flash</option>
+                <option value="gemini-3.6-flash" className="bg-slate-900 text-slate-100">⚡ Gemini 3.6 Flash (Audio & Math)</option>
                 <option value="gemini-3.5-flash" className="bg-slate-900 text-slate-100">⚡ Gemini 3.5 Flash</option>
+                <option value="gemini-3.0-flash" className="bg-slate-900 text-slate-100">⚡ Gemini 3.0 Flash</option>
+                <option value="gemini-2.5-flash" className="bg-slate-900 text-slate-100">⚡ Gemini 2.5 Flash</option>
                 <option value="gemini-3.5-flash-lite" className="bg-slate-900 text-slate-100">🚀 Gemini 3.5 Flash-Lite</option>
-                <option value="gemini-flash-latest" className="bg-slate-900 text-slate-100">✨ Gemini Flash Latest</option>
-                <option value="gemini-flash-lite-latest" className="bg-slate-900 text-slate-100">✨ Gemini Flash-Lite Latest</option>
+                <option value="gemini-3.1-flash-lite" className="bg-slate-900 text-slate-100">🚀 Gemini 3.1 Flash-Lite (Fast Slides/PDF)</option>
+                <option value="gemini-2.5-flash-lite" className="bg-slate-900 text-slate-100">🚀 Gemini 2.5 Flash-Lite</option>
               </select>
             </div>
 

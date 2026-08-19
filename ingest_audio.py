@@ -24,8 +24,20 @@ DEFAULT_AUDIO_MODEL = os.environ.get("AUDIO_MODEL", "gemini-3.6-flash")
 DEFAULT_DOC_MODEL = os.environ.get("DOC_MODEL", "gemini-3.1-flash-lite")
 DEFAULT_DENSE_MODEL = os.environ.get("DENSE_MATH_MODEL", "gemini-3.6-flash")
 
-AUDIO_FALLBACKS = ["gemini-3.6-flash", "gemini-3.5-flash", "gemini-flash-latest"]
-DOC_FALLBACKS = ["gemini-3.1-flash-lite", "gemini-3.5-flash-lite", "gemini-flash-lite-latest", "gemini-3.6-flash"]
+AUDIO_FALLBACKS = [
+    "gemini-3.7-flash",
+    "gemini-3.6-flash",
+    "gemini-3.5-flash",
+    "gemini-3.0-flash",
+    "gemini-2.5-flash"
+]
+DOC_FALLBACKS = [
+    "gemini-3.5-flash-lite",
+    "gemini-3.1-flash-lite",
+    "gemini-2.5-flash-lite",
+    "gemini-3.6-flash",
+    "gemini-3.5-flash"
+]
 
 SUPPORTED_AUDIO_EXTS = {".m4a", ".mp3", ".wav", ".aac", ".ogg", ".flac", ".wma"}
 SUPPORTED_DOC_EXTS = {".pdf", ".docx", ".doc", ".txt", ".md", ".pptx", ".ppt"}
