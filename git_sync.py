@@ -1,4 +1,5 @@
 import os
+import time
 import subprocess
 from pathlib import Path
 from dotenv import load_dotenv
@@ -68,15 +69,20 @@ def sync_notes_to_git(commit_message: str = "Add lecture notes [Automated Sync]"
     # Try pushing to remote if configured
     repo_url = os.environ.get("GIT_VAULT_REPO_URL", "").strip()
     if repo_url:
-        # Pull with rebase first to keep clean history
-        run_git_cmd(["git", "pull", "--rebase", "origin", GIT_BRANCH], LECTURES_DIR)
-        ok_push, out_push = run_git_cmd(["git", "push", "-u", "origin", GIT_BRANCH], LECTURES_DIR)
-        if ok_push:
-            print(f"[+] Successfully synced notes to Obsidian Git repo on '{GIT_BRANCH}'!")
-            return True, "Synced to remote Git repo"
-        else:
-            print(f"[!] Warning: Remote push pending auth/setup ({out_push}). Local commit saved.")
-            return True, f"Committed locally (remote push pending auth): {out_push}"
+        for attempt in range(1, 4):
+            # Fetch and rebase with remote to resolve ref lock race conditions
+            run_git_cmd(["git", "fetch", "origin", GIT_BRANCH], LECTURES_DIR)
+            run_git_cmd(["git", "pull", "--rebase", "origin", GIT_BRANCH], LECTURES_DIR)
+            ok_push, out_push = run_git_cmd(["git", "push", "-u", "origin", GIT_BRANCH], LECTURES_DIR)
+            if ok_push:
+                print(f"[+] Successfully synced notes to Obsidian Git repo on '{GIT_BRANCH}'!")
+                return True, "Synced to remote Git repo"
+            else:
+                if "cannot lock ref" in out_push or "fetch first" in out_push:
+                    time.sleep(2)
+                    continue
+                print(f"[!] Warning: Remote push pending auth/setup ({out_push}). Local commit saved.")
+                return True, f"Committed locally (remote push pending auth): {out_push}"
     
     return True, "Committed locally"
 
