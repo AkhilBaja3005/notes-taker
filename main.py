@@ -31,6 +31,61 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
             self.send_response(404)
             self.end_headers()
 
+    def do_POST(self):
+        if self.path in ["/telegram_webhook", "/api/telegram_webhook"]:
+            import json
+            import asyncio
+            from bot import process_telegram_webhook
+            try:
+                content_length = int(self.headers.get("Content-Length", 0))
+                body = self.rfile.read(content_length)
+                update_dict = json.loads(body.decode("utf-8"))
+                
+                # Execute full Python bot pipeline asynchronously
+                try:
+                    loop = asyncio.get_event_loop()
+                except RuntimeError:
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+                loop.run_until_complete(process_telegram_webhook(update_dict))
+
+                self.send_response(200)
+                self.send_header("Content-type", "application/json")
+                self.end_headers()
+                self.wfile.write(b'{"status": "ok"}')
+            except Exception as e:
+                print(f"[!] Webhook error: {e}")
+                self.send_response(200)  # Always 200 to prevent Telegram retry spam
+                self.end_headers()
+                self.wfile.write(b'{"status": "handled"}')
+        elif self.path == "/api/save_chat":
+            import json
+            from metadata_db import save_chat_message
+            try:
+                content_length = int(self.headers.get("Content-Length", 0))
+                body = self.rfile.read(content_length)
+                data = json.loads(body.decode("utf-8"))
+                user_id = data.get("user_id", 8327334588)
+                prompt = data.get("prompt", "")
+                response = data.get("response", "")
+                
+                if prompt:
+                    save_chat_message(user_id, role="user", message=prompt)
+                if response:
+                    save_chat_message(user_id, role="assistant", message=response)
+
+                self.send_response(200)
+                self.send_header("Content-type", "application/json")
+                self.end_headers()
+                self.wfile.write(b'{"status": "saved"}')
+            except Exception as e:
+                self.send_response(500)
+                self.end_headers()
+                self.wfile.write(str(e).encode("utf-8"))
+        else:
+            self.send_response(404)
+            self.end_headers()
+
     def log_message(self, format, *args):
         pass  # Suppress health check access log noise
 
@@ -155,10 +210,71 @@ def cleanup_old_temp_files(hours_threshold: int = 48):
     if cleaned > 0:
         print(f"[+] Garbage Collector: Cleaned {cleaned} temporary files older than {hours_threshold}h.")
 
+def send_startup_deployment_notification():
+    """Sends a Telegram notification to the owner whenever a new deployment boots up (runs in background with retries)."""
+    time.sleep(15)  # Allow container network namespace & services to warm up
+    token = os.environ.get("TELEGRAM_BOT_TOKEN")
+    allowed_ids = [uid.strip() for uid in os.environ.get("ALLOWED_TELEGRAM_USER_IDS", "").split(",") if uid.strip().isdigit()]
+    target_users = allowed_ids if allowed_ids else ["8327334588"]
+
+    if not token or not target_users:
+        return
+
+    import urllib.request
+    import json
+
+    proxy_base_url = os.environ.get("TELEGRAM_API_BASE_URL", "").strip().rstrip("/")
+    if not proxy_base_url:
+        proxy_base_url = "https://summer-band-ce5a.akhilkumarbaja.workers.dev"
+
+    api_url = f"{proxy_base_url}/bot{token}/sendMessage"
+
+    boot_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    msg_text = (
+        f"🚀 *New Deployment Detected & Online!*\n\n"
+        f"• **Status**: `All Services Operational`\n"
+        f"• **Boot Time**: `{boot_time}`\n"
+        f"• **Active Engine**: `{os.environ.get('GEMINI_MODEL', 'gemini-3.6-flash')}`\n"
+        f"• **Webhook Gateway**: `Active via Cloudflare Worker`\n"
+        f"• **Dashboard**: [abaja-notes-taker.hf.space](https://abaja-notes-taker.hf.space)\n\n"
+        f"💬 Send `/menu` or ask any question to begin!"
+    )
+
+    for uid in target_users:
+        payload = json.dumps({
+            "chat_id": int(uid),
+            "text": msg_text,
+            "parse_mode": "Markdown",
+            "disable_web_page_preview": True
+        }).encode("utf-8")
+
+        for attempt in range(1, 5):
+            try:
+                req = urllib.request.Request(
+                    api_url,
+                    data=payload,
+                    headers={
+                        "Content-Type": "application/json",
+                        "User-Agent": "Mozilla/5.0 (compatible; AcademicBot/1.0)"
+                    },
+                    method="POST"
+                )
+                with urllib.request.urlopen(req, timeout=20) as resp:
+                    if resp.status == 200:
+                        print(f"[+] Startup deployment notification sent to Telegram user {uid}!")
+                        break
+            except Exception as e:
+                print(f"[!] Deployment notification attempt {attempt} for {uid}: {e}")
+                time.sleep(5 * attempt)
+
 def start_service(name: str, cmd: list) -> subprocess.Popen:
     """Spawns a managed process with explicit environment inheritance and registers it for self-healing supervision."""
     env_vars = os.environ.copy()
-    proc = subprocess.Popen(cmd, stdout=sys.stdout, stderr=sys.stderr, env=env_vars)
+    try:
+        proc = subprocess.Popen(cmd, env=env_vars)
+    except Exception as e:
+        print(f"[!] Error launching {name}: {e}")
+        proc = subprocess.Popen(cmd, env=env_vars, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     process_registry[name] = (proc, cmd)
     return proc
 
@@ -201,6 +317,9 @@ def main():
         "--server.headless", "true"
     ])
 
+    # 6. Dispatch Proactive Startup Deployment Notification to Telegram
+    threading.Thread(target=send_startup_deployment_notification, daemon=True).start()
+
     print("\n[+] All services started successfully with Self-Healing Supervisor active!")
     print("[+] Press Ctrl+C at any time to gracefully terminate all services.\n")
 
@@ -213,8 +332,7 @@ def main():
                 if exit_code is not None:
                     print(f"[!] Warning: Service '{name}' (PID {proc.pid}) exited with code {exit_code}. Auto-restarting in 3s...")
                     time.sleep(3)
-                    new_proc = subprocess.Popen(cmd, stdout=sys.stdout, stderr=sys.stderr, env=os.environ.copy())
-                    process_registry[name] = (new_proc, cmd)
+                    new_proc = start_service(name, cmd)
                     print(f"[+] Service '{name}' successfully restarted with new PID {new_proc.pid}!")
 
             # Periodic cleanup every 12 hours

@@ -460,10 +460,9 @@ async def text_message_handler(update: Update, context: ContextTypes.DEFAULT_TYP
     except Exception as e:
         await status_msg.edit_text(f"❌ Error: {e}")
 
-def main():
+def build_bot_app():
     if not TELEGRAM_TOKEN:
-        print("[!] TELEGRAM_BOT_TOKEN not configured.")
-        return
+        return None
 
     from telegram.request import HTTPXRequest
 
@@ -478,34 +477,8 @@ def main():
         pool_timeout=60.0
     )
 
-    async def on_startup(application):
-        allowed_ids = [uid.strip() for uid in os.environ.get("ALLOWED_TELEGRAM_USER_IDS", "").split(",") if uid.strip().isdigit()]
-        target_users = allowed_ids if allowed_ids else ["8327334588"]
-        boot_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        msg_text = (
-            f"🚀 *New Deployment Detected & Online!*\n\n"
-            f"• **Status**: `All Services Operational`\n"
-            f"• **Boot Time**: `{boot_time}`\n"
-            f"• **Active Engine**: `{os.environ.get('GEMINI_MODEL', 'gemini-3.6-flash')}`\n"
-            f"• **Storage**: `Persistent /data Bucket Active`\n"
-            f"• **Dashboard**: [abaja-notes-taker.hf.space](https://abaja-notes-taker.hf.space)\n\n"
-            f"💬 Send `/menu` or ask any question to begin!"
-        )
-        for uid in target_users:
-            try:
-                await application.bot.send_message(
-                    chat_id=int(uid),
-                    text=msg_text,
-                    parse_mode="Markdown",
-                    disable_web_page_preview=True
-                )
-                print(f"[+] Startup deployment notification sent to Telegram user {uid}!")
-            except Exception as e:
-                print(f"[!] Startup notification notice for {uid}: {e}")
-
-    builder = ApplicationBuilder().token(TELEGRAM_TOKEN).request(request_client).post_init(on_startup)
+    builder = ApplicationBuilder().token(TELEGRAM_TOKEN).request(request_client)
     if proxy_base_url:
-        print(f"[*] Using Custom Telegram Reverse Proxy Gateway: {proxy_base_url}")
         builder = builder.base_url(proxy_base_url)
 
     app = builder.build()
@@ -523,6 +496,26 @@ def main():
     app.add_handler(CallbackQueryHandler(button_callback_handler))
     app.add_handler(MessageHandler(filters.ATTACHMENT | filters.VOICE | filters.AUDIO, file_handler))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, text_message_handler))
+    return app
+
+_global_app = None
+
+async def process_telegram_webhook(update_dict: dict):
+    """Processes incoming Telegram updates forwarded from Cloudflare webhook."""
+    global _global_app
+    if _global_app is None:
+        _global_app = build_bot_app()
+        await _global_app.initialize()
+        await _global_app.start()
+
+    update = Update.de_json(update_dict, _global_app.bot)
+    await _global_app.process_update(update)
+
+def main():
+    app = build_bot_app()
+    if not app:
+        print("[!] TELEGRAM_BOT_TOKEN not configured.")
+        return
 
     print("[*] Academic Assistant Telegram Bot polling started!")
     try:
