@@ -206,8 +206,16 @@ export default function App() {
         method: 'POST',
         body: formData,
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.detail || 'Failed to process file');
+      
+      const text = await res.text();
+      let data: any = {};
+      try {
+        data = text ? JSON.parse(text) : {};
+      } catch (jsonErr) {
+        throw new Error(text || `Server returned HTTP ${res.status}`);
+      }
+
+      if (!res.ok) throw new Error(data.detail || data.message || `Upload failed with status ${res.status}`);
       setUploadResult(data.note_content);
       fetchCourses();
     } catch (err: any) {
