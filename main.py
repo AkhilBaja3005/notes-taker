@@ -99,30 +99,46 @@ def run_health_server(port: int = 8080):
 
 def self_ping_keepalive(interval_seconds: int = 300):
     """
-    Self-ping keepalive daemon:
-    Periodically sends lightweight HTTP GET requests to Hugging Face Spaces
-    to ensure the instance stays awake and never idles out.
+    Mutual Keepalive Daemon on Hugging Face:
+    Periodically sends lightweight HTTP GET requests to both Hugging Face Space AND Render Web Service
+    to ensure neither service sleeps or idles out.
     """
     time.sleep(30)  # Initial grace period on boot
     
-    # Target public URL or direct internal port
-    target_url = os.environ.get("SPACE_HOST")
-    if target_url:
-        target_url = f"https://{target_url}/"
-    else:
-        target_url = f"http://127.0.0.1:{os.environ.get('STREAMLIT_SERVER_PORT', '7860')}/"
+    # 1. Target Hugging Face URL
+    hf_host = os.environ.get("SPACE_HOST")
+    hf_target = f"https://{hf_host}/healthz" if hf_host else f"http://127.0.0.1:{os.environ.get('STREAMLIT_SERVER_PORT', '7860')}/healthz"
 
-    print(f"[*] Self-ping Keepalive Daemon active. Monitoring: {target_url} (every {interval_seconds}s)")
+    # 2. Target Render Service URL
+    render_target = os.environ.get("RENDER_EXTERNAL_URL", "").strip().rstrip("/")
+    if render_target:
+        render_target = f"{render_target}/health"
+
+    print(f"[*] Mutual Keepalive Daemon active. Monitoring HF: {hf_target} | Render: {render_target or 'N/A'} (every {interval_seconds}s)")
     while True:
+        # Ping Hugging Face
         try:
             req = urllib.request.Request(
-                target_url,
-                headers={"User-Agent": "Academic-Assistant-Keepalive/1.0"}
+                hf_target,
+                headers={"User-Agent": "Academic-Assistant-Keepalive/2.0", "Connection": "close"}
             )
-            with urllib.request.urlopen(req, timeout=15) as response:
+            with urllib.request.urlopen(req, timeout=15) as resp:
                 pass
         except Exception:
-            pass  # Normal during cold boots
+            pass
+
+        # Ping Render
+        if render_target:
+            try:
+                req_render = urllib.request.Request(
+                    render_target,
+                    headers={"User-Agent": "HF-To-Render-Keepalive/2.0", "Connection": "close"}
+                )
+                with urllib.request.urlopen(req_render, timeout=15) as resp_r:
+                    pass
+            except Exception:
+                pass
+
         time.sleep(interval_seconds)
 
 def setup_persistent_hf_storage():

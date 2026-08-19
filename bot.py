@@ -536,26 +536,45 @@ def run_dummy_health_server(port: int = 10000):
     except Exception as e:
         print(f"[!] Health server note: {e}")
 
-def self_ping_render_keepalive(interval_seconds: int = 600):
-    """Periodically pings the Render service URL to prevent free tier spin-down/sleeping."""
+def self_ping_render_keepalive(interval_seconds: int = 300):
+    """
+    Mutual Keepalive Daemon on Render:
+    Periodically pings both Render service AND Hugging Face Space (/healthz)
+    to keep both containers 100% awake 24/7 without idle sleep.
+    """
     import urllib.request
     import time
     time.sleep(30)  # Initial boot delay
-    render_url = os.environ.get("RENDER_EXTERNAL_URL", "").strip().rstrip("/")
-    if not render_url:
-        return
 
-    print(f"[*] Render Self-Ping Keepalive Daemon active. Monitoring: {render_url} (every {interval_seconds}s)")
+    render_url = os.environ.get("RENDER_EXTERNAL_URL", "").strip().rstrip("/")
+    hf_backend = os.environ.get("HF_BACKEND_URL", "https://abaja-notes-taker.hf.space").strip().rstrip("/")
+
+    print(f"[*] Render Mutual Keepalive active. Monitoring Render: {render_url or 'localhost'} | HF: {hf_backend} (every {interval_seconds}s)")
     while True:
-        try:
-            req = urllib.request.Request(
-                f"{render_url}/health",
-                headers={"User-Agent": "RenderKeepalive/2.0"}
-            )
-            with urllib.request.urlopen(req, timeout=15) as resp:
+        # 1. Ping Render itself
+        if render_url:
+            try:
+                req = urllib.request.Request(
+                    f"{render_url}/health",
+                    headers={"User-Agent": "Render-Self-Keepalive/2.0", "Connection": "close"}
+                )
+                with urllib.request.urlopen(req, timeout=15) as resp:
+                    pass
+            except Exception:
                 pass
-        except Exception:
-            pass
+
+        # 2. Ping Hugging Face Space
+        if hf_backend:
+            try:
+                req_hf = urllib.request.Request(
+                    f"{hf_backend}/healthz",
+                    headers={"User-Agent": "Render-To-HF-Keepalive/2.0", "Connection": "close"}
+                )
+                with urllib.request.urlopen(req_hf, timeout=15) as resp_hf:
+                    pass
+            except Exception:
+                pass
+
         time.sleep(interval_seconds)
 
 def main():
