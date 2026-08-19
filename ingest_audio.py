@@ -31,6 +31,23 @@ SUPPORTED_AUDIO_EXTS = {".m4a", ".mp3", ".wav", ".aac", ".ogg", ".flac", ".wma"}
 SUPPORTED_DOC_EXTS = {".pdf", ".docx", ".doc", ".txt", ".md", ".pptx", ".ppt"}
 SUPPORTED_EXTS = SUPPORTED_AUDIO_EXTS.union(SUPPORTED_DOC_EXTS)
 
+MIME_TYPE_MAP = {
+    ".m4a": "audio/mp4",
+    ".mp3": "audio/mp3",
+    ".wav": "audio/wav",
+    ".aac": "audio/aac",
+    ".ogg": "audio/ogg",
+    ".flac": "audio/flac",
+    ".wma": "audio/x-ms-wma",
+    ".pdf": "application/pdf",
+    ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    ".doc": "application/msword",
+    ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    ".ppt": "application/vnd.ms-powerpoint",
+    ".txt": "text/plain",
+    ".md": "text/markdown",
+}
+
 def get_optimal_model_for_file(file_path: Path, is_dense_math: bool = False) -> tuple[str, list[str]]:
     suffix = file_path.suffix.lower()
     if suffix in SUPPORTED_AUDIO_EXTS:
@@ -120,14 +137,18 @@ def process_file(file_path_str: str, course_name: str, topic_name: str, lecture_
     """
 
     uploaded_remote_file = None
-    contents_payload = []
+    upload_mime = MIME_TYPE_MAP.get(actual_upload_path.suffix.lower())
+    upload_config = {"mime_type": upload_mime} if upload_mime else None
 
     if suffix in [".docx", ".doc"]:
         text_content = extract_text_from_docx(file_path)
         if not text_content.strip():
-            print(f"[*] Uploading {file_path.name} to Gemini File API...")
+            print(f"[*] Uploading {file_path.name} to Gemini File API (mime: {upload_mime})...")
             with contextlib.redirect_stderr(io.StringIO()):
-                uploaded_remote_file = client.files.upload(file=str(actual_upload_path))
+                if upload_config:
+                    uploaded_remote_file = client.files.upload(file=str(actual_upload_path), config=upload_config)
+                else:
+                    uploaded_remote_file = client.files.upload(file=str(actual_upload_path))
             contents_payload = [uploaded_remote_file, prompt]
         else:
             contents_payload = [f"Document Content for {file_path.name}:\n\n{text_content}", prompt]
@@ -135,9 +156,12 @@ def process_file(file_path_str: str, course_name: str, topic_name: str, lecture_
         text_content = file_path.read_text(encoding="utf-8", errors="ignore")
         contents_payload = [f"Document Content for {file_path.name}:\n\n{text_content}", prompt]
     else:
-        print(f"[*] Uploading {actual_upload_path.name} to Gemini File API...")
+        print(f"[*] Uploading {actual_upload_path.name} to Gemini File API (mime: {upload_mime})...")
         with contextlib.redirect_stderr(io.StringIO()):
-            uploaded_remote_file = client.files.upload(file=str(actual_upload_path))
+            if upload_config:
+                uploaded_remote_file = client.files.upload(file=str(actual_upload_path), config=upload_config)
+            else:
+                uploaded_remote_file = client.files.upload(file=str(actual_upload_path))
         contents_payload = [uploaded_remote_file, prompt]
 
     candidate_models = [selected_model] + [m for m in fallback_pool if m != selected_model]
