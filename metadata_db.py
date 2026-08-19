@@ -62,14 +62,25 @@ def get_recent_chat_history(user_id: int, session_id: str = "default", limit: in
     conn = sqlite3.connect(get_db_path())
     cursor = conn.cursor()
     cursor.execute("""
-        SELECT role, message FROM chat_history
+        SELECT role, message, created_at FROM chat_history
         WHERE user_id = ? AND session_id = ?
         ORDER BY id DESC LIMIT ?
     """, (user_id, session_id, limit))
     rows = cursor.fetchall()
     conn.close()
-    # Reverse so it's in chronological order
-    return [{"role": r[0], "content": r[1]} for r in reversed(rows)]
+    return [{"role": r[0], "content": r[1], "timestamp": r[2]} for r in reversed(rows)]
+
+def get_all_saved_chats(limit: int = 50) -> list[dict]:
+    init_db()
+    conn = sqlite3.connect(get_db_path())
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT user_id, role, message, created_at FROM chat_history
+        ORDER BY id DESC LIMIT ?
+    """, (limit,))
+    rows = cursor.fetchall()
+    conn.close()
+    return [{"user_id": r[0], "role": r[1], "content": r[2], "timestamp": r[3]} for r in reversed(rows)]
 
 def clear_user_chat_history(user_id: int, session_id: str = "default"):
     init_db()

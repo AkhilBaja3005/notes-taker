@@ -86,8 +86,8 @@ def clean_and_repair_latex(markdown_text: str) -> str:
     text = re.sub(r"\n{3,}", "\n\n", text)
     return text
 
-def generate_with_fallback(prompt: str, system_instruction: str = None, requested_model: str = None) -> str:
-    """Robust generator with automatic fallback across stable Gemini Flash models and silent stderr."""
+def generate_with_fallback(prompt: str, system_instruction: str = None, requested_model: str = None, enable_web_search: bool = False) -> str:
+    """Robust generator with automatic fallback across stable Gemini Flash models and optional Google Web Search grounding."""
     if requested_model is None or requested_model == "gemini-3.7-flash":
         requested_model = DEFAULT_MODEL
 
@@ -99,6 +99,8 @@ def generate_with_fallback(prompt: str, system_instruction: str = None, requeste
             config_kwargs = {}
             if system_instruction:
                 config_kwargs["system_instruction"] = system_instruction
+            if enable_web_search:
+                config_kwargs["tools"] = [types.Tool(google_search=types.GoogleSearch())]
                 
             config = types.GenerateContentConfig(**config_kwargs) if config_kwargs else None
 

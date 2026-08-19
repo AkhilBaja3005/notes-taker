@@ -13,7 +13,7 @@ from core_engine import (
 from ingest_audio import process_file
 from anki_exporter import generate_anki_deck_for_course, parse_flashcards_from_markdown
 from vector_store import semantic_search_notes
-from metadata_db import query_courses
+from metadata_db import query_courses, get_all_saved_chats, clear_user_chat_history
 from cheatsheet_generator import generate_course_cheatsheet
 import frontmatter
 
@@ -43,7 +43,8 @@ with st.sidebar:
     st.info(
         "🧠 **Intelligent Tiered Routing:**\n"
         "• **Audio / Dense Math**: `gemini-3.6-flash` (Acoustic & proof reasoning)\n"
-        "• **Typed PDFs & Slides**: `gemini-3.1-flash-lite` (350+ tokens/sec, low latency)"
+        "• **Typed PDFs & Slides**: `gemini-3.1-flash-lite` (350+ tokens/sec, low latency)\n"
+        "• **Global Knowledge**: Google Search Grounding enabled"
     )
     
     st.markdown("---")
@@ -64,13 +65,14 @@ with st.sidebar:
     )
     active_model = None if selected_model_choice == "Auto (Workload-Aware)" else selected_model_choice
 
-tab_upload, tab_recap, tab_exam, tab_cheatsheet, tab_search, tab_anki = st.tabs([
+tab_upload, tab_recap, tab_exam, tab_cheatsheet, tab_search, tab_anki, tab_history = st.tabs([
     "📤 Ingestion & Mic", 
     "📅 Daily Recap", 
     "🎯 Exam Prep", 
     "📋 Cheatsheet Generator",
     "🔍 Semester Search", 
-    "📇 Flashcards & Anki"
+    "📇 Flashcards & Anki",
+    "💬 Saved Chat History"
 ])
 
 with tab_upload:
@@ -343,3 +345,33 @@ with tab_anki:
                                 file_name=deck_path.name,
                                 mime="application/octet-stream"
                             )
+
+with tab_history:
+    st.subheader("💬 Study Chat History & Mobile Telegram Sessions")
+    st.markdown("All questions, answers, and theorem derivations from your **Telegram Mobile Bot** and Web sessions are stored here on persistent disk.")
+
+    all_chats = get_all_saved_chats(limit=100)
+    if not all_chats:
+        st.info("No saved conversation history yet. Start asking questions in Telegram or Web!")
+    else:
+        c_clear, c_count = st.columns([1, 4])
+        with c_clear:
+            if st.button("🗑️ Clear All Chat History", type="secondary"):
+                clear_user_chat_history(8327334588)
+                st.success("Chat history cleared.")
+                st.rerun()
+        with c_count:
+            st.markdown(f"**Total Logged Interactions:** `{len(all_chats)}`")
+
+        st.divider()
+        for c in all_chats:
+            role = c["role"]
+            ts = c.get("timestamp", "")
+            if role == "user":
+                with st.chat_message("user"):
+                    st.markdown(f"**🧑 You** `[{ts}]`")
+                    st.markdown(c["content"])
+            else:
+                with st.chat_message("assistant"):
+                    st.markdown(f"**🎓 Assistant** `[{ts}]`")
+                    st.markdown(c["content"])

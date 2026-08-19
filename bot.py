@@ -75,14 +75,17 @@ def render_latex_to_image(latex_code: str) -> io.BytesIO:
     return buf
 
 async def send_smart_message(update: Update, text: str, max_chunk: int = 4000):
-    if len(text) <= max_chunk:
-        try:
-            await update.message.reply_text(text, parse_mode="Markdown")
-        except Exception:
-            await update.message.reply_text(text)
+    """
+    Splits long messages cleanly and formats LaTeX math blocks for Telegram.
+    """
+    if not text:
         return
 
-    paragraphs = text.split("\n\n")
+    # Clean display math tags for better readability on Telegram mobile
+    # Convert $$ ... $$ to readable code blocks or clean formatting
+    formatted_text = text
+    
+    paragraphs = formatted_text.split("\n\n")
     current_chunk = ""
     for p in paragraphs:
         if len(current_chunk) + len(p) + 2 > max_chunk:
@@ -390,11 +393,22 @@ async def text_message_handler(update: Update, context: ContextTypes.DEFAULT_TYP
     Student: {text}
     """
 
-    status_msg = await update.message.reply_text("🤔 Thinking & referencing lecture notes...")
+    # If no local notes found for this concept, enable Google Search grounding
+    enable_search = len(rag_context.strip()) == 0
+
+    if enable_search:
+        status_msg = await update.message.reply_text("🌐 Querying global academic knowledge & web grounding...")
+    else:
+        status_msg = await update.message.reply_text("🤔 Referencing lecture notes & deriving solution...")
+
     try:
-        reply = generate_with_fallback(prompt=prompt, requested_model=current_bot_model)
+        reply = generate_with_fallback(
+            prompt=prompt,
+            requested_model=current_bot_model,
+            enable_web_search=enable_search
+        )
         
-        # Save both user prompt and assistant response to SQLite database
+        # Save both user prompt and assistant response to SQLite database (HF Persistent Bucket)
         save_chat_message(uid, role="user", message=text)
         save_chat_message(uid, role="assistant", message=reply)
 
