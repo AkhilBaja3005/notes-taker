@@ -308,14 +308,13 @@ def main():
     else:
         print("[!] TELEGRAM_BOT_TOKEN not configured - running Web UI & Watcher only.")
 
-    # 5. Start Streamlit App (Port 7860 on HF Spaces / 8501 local)
-    port = os.environ.get("STREAMLIT_SERVER_PORT", "8501")
-    print(f"[*] Launching Streamlit Web App on port {port}...")
-    start_service("Streamlit", [
-        python_executable, "-u", "-m", "streamlit", "run", "app.py",
-        "--server.port", str(port),
-        "--server.address", "0.0.0.0",
-        "--server.headless", "true"
+    # 5. Start High-Performance FastAPI + React Web Server (Port 7860 on HF Spaces / 8501 local)
+    port = int(os.environ.get("STREAMLIT_SERVER_PORT", "7860"))
+    print(f"[*] Launching FastAPI + React Web Hub on port {port}...")
+    start_service("FastAPI_Hub", [
+        python_executable, "-u", "-m", "uvicorn", "server:app",
+        "--host", "0.0.0.0",
+        "--port", str(port)
     ])
 
     # 6. Dispatch Proactive Startup Deployment Notification to Telegram

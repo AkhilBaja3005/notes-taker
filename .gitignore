@@ -39,3 +39,8 @@ optimized_audio/
 # Agent skills symlinks
 .agents/
 .claude/
+
+# Node.js & Frontend build
+frontend/node_modules/
+frontend/dist/
+frontend/.npm/

@@ -1,5 +1,8 @@
 google-genai>=0.1.1
 watchdog>=4.0.0
+fastapi>=0.111.0
+uvicorn[standard]>=0.30.0
+python-multipart>=0.0.9
 streamlit>=1.35.0
 python-telegram-bot>=21.0
 python-frontmatter>=1.1.0
