@@ -177,12 +177,12 @@ def main():
 
     # 3. Start Watcher Daemon
     print("[*] Launching Watcher Daemon (watcher.py)...")
-    start_service("Watcher", [python_executable, "watcher.py"])
+    start_service("Watcher", [python_executable, "-u", "watcher.py"])
 
     # 4. Start Telegram Bot (if configured)
     if os.environ.get("TELEGRAM_BOT_TOKEN"):
         print("[*] Launching Telegram Bot (bot.py)...")
-        start_service("TelegramBot", [python_executable, "bot.py"])
+        start_service("TelegramBot", [python_executable, "-u", "bot.py"])
     else:
         print("[!] TELEGRAM_BOT_TOKEN not configured - running Web UI & Watcher only.")
 
@@ -190,7 +190,7 @@ def main():
     port = os.environ.get("STREAMLIT_SERVER_PORT", "8501")
     print(f"[*] Launching Streamlit Web App on port {port}...")
     start_service("Streamlit", [
-        python_executable, "-m", "streamlit", "run", "app.py",
+        python_executable, "-u", "-m", "streamlit", "run", "app.py",
         "--server.port", str(port),
         "--server.address", "0.0.0.0",
         "--server.headless", "true"
