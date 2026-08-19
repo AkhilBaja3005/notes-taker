@@ -253,46 +253,74 @@ def search_knowledge_base(q: str = Query(..., min_length=2), course: Optional[st
 @app.post("/api/upload", dependencies=[Depends(verify_api_key)])
 async def upload_lecture_material(
     request: Request,
-    file: Optional[UploadFile] = File(None),
-    course_name: Optional[str] = Form(""),
-    topic_name: Optional[str] = Form(""),
-    lecture_date: Optional[str] = Form(""),
-    model: Optional[str] = Form(DEFAULT_MODEL),
-    is_dense_math: Optional[bool] = Form(False)
+    course_name: Optional[str] = Query(None),
+    topic_name: Optional[str] = Query(None),
+    lecture_date: Optional[str] = Query(None),
+    model: Optional[str] = Query(None),
+    is_dense_math: Optional[bool] = Query(None)
 ):
-    # Check if file was sent via standard multipart/form-data
-    if file is not None and file.filename:
-        filename = file.filename
-        content = await file.read()
-    else:
-        # Fallback: Check if request has raw stream/body (e.g. from iOS Shortcut direct binary post)
-        try:
-            form = await request.form()
-            file_field = form.get("file")
-            if file_field and hasattr(file_field, "filename"):
-                filename = file_field.filename
-                content = await file_field.read()
-            elif file_field and isinstance(file_field, bytes):
+    content_type = request.headers.get("content-type", "")
+    filename = None
+    content = b""
+    c_name = course_name
+    t_name = topic_name
+    l_date = lecture_date
+    m_model = model or DEFAULT_MODEL
+    dense_math = is_dense_math or False
+
+    if "multipart/form-data" in content_type or "application/x-www-form-urlencoded" in content_type:
+        form = await request.form()
+        
+        # Extract metadata from form fields if present
+        if not c_name and "course_name" in form:
+            c_name = str(form.get("course_name") or "")
+        if not t_name and "topic_name" in form:
+            t_name = str(form.get("topic_name") or "")
+        if not l_date and "lecture_date" in form:
+            l_date = str(form.get("lecture_date") or "")
+        if not model and "model" in form:
+            m_model = str(form.get("model") or DEFAULT_MODEL)
+        if is_dense_math is None and "is_dense_math" in form:
+            dense_math = str(form.get("is_dense_math", "")).lower() in ("true", "1", "yes")
+
+        # Extract file payload
+        file_obj = form.get("file")
+        if file_obj is not None:
+            if hasattr(file_obj, "filename") and file_obj.filename:
+                filename = file_obj.filename
+                content = await file_obj.read()
+            elif hasattr(file_obj, "read"):
                 filename = f"ios_upload_{int(time.time())}.m4a"
-                content = file_field
-            else:
-                body = await request.body()
-                if body and len(body) > 100:
-                    content_type = request.headers.get("content-type", "")
-                    ext = ".m4a" if "audio" in content_type else (".pdf" if "pdf" in content_type else ".bin")
-                    filename = f"ios_upload_{int(time.time())}{ext}"
-                    content = body
-                else:
-                    raise HTTPException(status_code=422, detail="Missing 'file' field or binary payload in upload request.")
-        except Exception as e:
-            if isinstance(e, HTTPException):
-                raise e
-            raise HTTPException(status_code=422, detail=f"Could not parse upload payload: {str(e)}")
+                content = await file_obj.read()
+            elif isinstance(file_obj, bytes):
+                filename = f"ios_upload_{int(time.time())}.m4a"
+                content = file_obj
+            elif isinstance(file_obj, str):
+                filename = f"ios_upload_{int(time.time())}.txt"
+                content = file_obj.encode("utf-8")
+        else:
+            # Check any other uploaded form file
+            for k, v in form.items():
+                if hasattr(v, "filename") and v.filename:
+                    filename = v.filename
+                    content = await v.read()
+                    break
+    else:
+        # Direct raw binary body (e.g. Content-Type: audio/m4a, application/pdf, etc.)
+        content = await request.body()
+        ext = ".m4a" if "audio" in content_type else (".pdf" if "pdf" in content_type else ".bin")
+        filename = f"ios_upload_{int(time.time())}{ext}"
+
+    if not content or len(content) == 0:
+        raise HTTPException(status_code=422, detail="No file content or audio stream received.")
+
+    if not filename:
+        filename = f"ios_upload_{int(time.time())}.m4a"
 
     stem = Path(filename).stem
-    c_name = course_name.strip() if (course_name and course_name.strip()) else "General"
-    t_name = topic_name.strip() if (topic_name and topic_name.strip()) else stem
-    l_date = lecture_date.strip() if (lecture_date and lecture_date.strip()) else datetime.date.today().isoformat()
+    c_name = c_name.strip() if (c_name and c_name.strip()) else "General"
+    t_name = t_name.strip() if (t_name and t_name.strip()) else stem
+    l_date = l_date.strip() if (l_date and l_date.strip()) else datetime.date.today().isoformat()
 
     save_path = INCOMING_DIR / filename
     with open(save_path, "wb") as buffer:
@@ -304,8 +332,8 @@ async def upload_lecture_material(
             course_name=c_name,
             topic_name=t_name,
             lecture_date=l_date,
-            model=model,
-            is_dense_math=is_dense_math
+            model=m_model,
+            is_dense_math=dense_math
         )
         # Asynchronously dispatch proactive Telegram confirmation
         asyncio.create_task(
