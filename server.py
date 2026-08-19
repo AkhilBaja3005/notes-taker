@@ -252,21 +252,50 @@ def search_knowledge_base(q: str = Query(..., min_length=2), course: Optional[st
 # ----------------- Direct Ingestion Upload -----------------
 @app.post("/api/upload", dependencies=[Depends(verify_api_key)])
 async def upload_lecture_material(
-    file: UploadFile = File(...),
+    request: Request,
+    file: Optional[UploadFile] = File(None),
     course_name: Optional[str] = Form(""),
     topic_name: Optional[str] = Form(""),
     lecture_date: Optional[str] = Form(""),
     model: Optional[str] = Form(DEFAULT_MODEL),
     is_dense_math: Optional[bool] = Form(False)
 ):
-    stem = Path(file.filename).stem
-    c_name = course_name.strip() if course_name else "General"
-    t_name = topic_name.strip() if topic_name else stem
-    l_date = lecture_date.strip() if lecture_date else datetime.date.today().isoformat()
-
-    save_path = INCOMING_DIR / file.filename
-    with open(save_path, "wb") as buffer:
+    # Check if file was sent via standard multipart/form-data
+    if file is not None and file.filename:
+        filename = file.filename
         content = await file.read()
+    else:
+        # Fallback: Check if request has raw stream/body (e.g. from iOS Shortcut direct binary post)
+        try:
+            form = await request.form()
+            file_field = form.get("file")
+            if file_field and hasattr(file_field, "filename"):
+                filename = file_field.filename
+                content = await file_field.read()
+            elif file_field and isinstance(file_field, bytes):
+                filename = f"ios_upload_{int(time.time())}.m4a"
+                content = file_field
+            else:
+                body = await request.body()
+                if body and len(body) > 100:
+                    content_type = request.headers.get("content-type", "")
+                    ext = ".m4a" if "audio" in content_type else (".pdf" if "pdf" in content_type else ".bin")
+                    filename = f"ios_upload_{int(time.time())}{ext}"
+                    content = body
+                else:
+                    raise HTTPException(status_code=422, detail="Missing 'file' field or binary payload in upload request.")
+        except Exception as e:
+            if isinstance(e, HTTPException):
+                raise e
+            raise HTTPException(status_code=422, detail=f"Could not parse upload payload: {str(e)}")
+
+    stem = Path(filename).stem
+    c_name = course_name.strip() if (course_name and course_name.strip()) else "General"
+    t_name = topic_name.strip() if (topic_name and topic_name.strip()) else stem
+    l_date = lecture_date.strip() if (lecture_date and lecture_date.strip()) else datetime.date.today().isoformat()
+
+    save_path = INCOMING_DIR / filename
+    with open(save_path, "wb") as buffer:
         buffer.write(content)
 
     try:
@@ -282,7 +311,7 @@ async def upload_lecture_material(
         asyncio.create_task(
             asyncio.to_thread(
                 notify_telegram_upload_complete,
-                file_name=file.filename,
+                file_name=filename,
                 course_name=c_name,
                 topic_name=t_name,
                 note_path=str(out_note),
@@ -291,7 +320,7 @@ async def upload_lecture_material(
         )
         return {
             "status": "success",
-            "message": f"Successfully ingested {file.filename}",
+            "message": f"Successfully ingested {filename}",
             "note_path": str(out_note),
             "note_content": out_note.read_text(encoding="utf-8")
         }
