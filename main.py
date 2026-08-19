@@ -255,7 +255,8 @@ def send_startup_deployment_notification():
                     data=payload,
                     headers={
                         "Content-Type": "application/json",
-                        "User-Agent": "Mozilla/5.0 (compatible; AcademicBot/1.0)"
+                        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                        "Connection": "close"
                     },
                     method="POST"
                 )
