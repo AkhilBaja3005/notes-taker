@@ -333,38 +333,52 @@ async def upload_lecture_material(
     t_name = t_name.strip() if (t_name and t_name.strip()) else stem
     l_date = l_date.strip() if (l_date and l_date.strip()) else datetime.date.today().isoformat()
 
+    # Save incoming payload to incoming_audio
     save_path = INCOMING_DIR / filename
     with open(save_path, "wb") as buffer:
         buffer.write(content)
 
-    try:
-        out_note = process_file(
-            file_path_str=str(save_path),
-            course_name=c_name,
-            topic_name=t_name,
-            lecture_date=l_date,
-            model=m_model,
-            is_dense_math=dense_math
-        )
-        # Asynchronously dispatch proactive Telegram confirmation
-        asyncio.create_task(
-            asyncio.to_thread(
-                notify_telegram_upload_complete,
-                file_name=filename,
-                course_name=c_name,
-                topic_name=t_name,
-                note_path=str(out_note),
-                model_used=model
+    def run_background_pipeline(file_str, course, topic, ldate, mdl, dense):
+        try:
+            out_note = process_file(
+                file_path_str=file_str,
+                course_name=course,
+                topic_name=topic,
+                lecture_date=ldate,
+                model=mdl,
+                is_dense_math=dense
             )
+            # Dispatch proactive Telegram confirmation
+            notify_telegram_upload_complete(
+                file_name=Path(file_str).name,
+                course_name=course,
+                topic_name=topic,
+                note_path=str(out_note),
+                model_used=mdl
+            )
+        except Exception as err:
+            print(f"[!] Background ingestion error for {file_str}: {err}")
+
+    # Launch processing asynchronously so the iPhone shortcut finishes in <1 second
+    asyncio.create_task(
+        asyncio.to_thread(
+            run_background_pipeline,
+            str(save_path),
+            c_name,
+            t_name,
+            l_date,
+            m_model,
+            dense_math
         )
-        return {
-            "status": "success",
-            "message": f"Successfully ingested {filename}",
-            "note_path": str(out_note),
-            "note_content": out_note.read_text(encoding="utf-8")
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    )
+
+    return {
+        "status": "processing",
+        "message": f"Successfully received {filename}. Processing in background...",
+        "course": c_name,
+        "topic": t_name,
+        "model": m_model
+    }
 
 # ----------------- Exam Tutor & Chat -----------------
 @app.post("/api/chat")

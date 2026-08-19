@@ -195,14 +195,30 @@ def process_file(file_path_str: str, course_name: str, topic_name: str, lecture_
     response = None
     last_err = None
 
+    # Dynamic Thinking Budget: 0 for fast memos, 2048/4096 for deep math/derivations
+    thinking_budget = 4096 if is_dense_math else 0
+    config_args = {}
+    if "flash" in selected_model.lower() or "gemini-2.5" in selected_model or "gemini-3" in selected_model:
+        try:
+            config_args["thinking_config"] = types.ThinkingConfig(thinking_budget=thinking_budget)
+        except Exception:
+            pass
+
     for candidate in candidate_models:
         try:
-            print(f"[*] Processing material through Gemini ({candidate})...")
+            print(f"[*] Processing material through Gemini ({candidate}) [Thinking Budget: {thinking_budget}]...")
             with contextlib.redirect_stderr(io.StringIO()):
-                response = client.models.generate_content(
-                    model=candidate,
-                    contents=contents_payload
-                )
+                if config_args:
+                    response = client.models.generate_content(
+                        model=candidate,
+                        contents=contents_payload,
+                        config=types.GenerateContentConfig(**config_args)
+                    )
+                else:
+                    response = client.models.generate_content(
+                        model=candidate,
+                        contents=contents_payload
+                    )
             selected_model = candidate
             break
         except Exception as err:
@@ -254,12 +270,20 @@ tags:
     except Exception as e:
         print(f"[!] Warning: Git auto-sync failed: {e}")
 
+    # 4. Ephemeral Audio & Gemini Remote File Cleanup
     if uploaded_remote_file:
         try:
             with contextlib.redirect_stderr(io.StringIO()):
                 client.files.delete(name=uploaded_remote_file.name)
         except Exception as e:
             print(f"[!] Warning: Remote file deletion failed: {e}")
+
+    # Clean local optimized audio to conserve container storage
+    if is_audio and actual_upload_path.exists() and actual_upload_path != file_path:
+        try:
+            actual_upload_path.unlink()
+        except Exception:
+            pass
 
     return output_filename
 
