@@ -356,8 +356,17 @@ def main():
     app.add_handler(CallbackQueryHandler(button_callback_handler))
     app.add_handler(MessageHandler(filters.ATTACHMENT | filters.VOICE | filters.AUDIO, file_handler))
 
-    print("[*] Academic Assistant Telegram Bot running...")
-    app.run_polling(bootstrap_retries=-1, timeout=30)
+    print("[*] Academic Assistant Telegram Bot starting polling (dropping stale webhooks/updates)...")
+    try:
+        app.run_polling(
+            drop_pending_updates=True,
+            bootstrap_retries=-1,
+            timeout=30,
+            poll_interval=1.0
+        )
+    except Exception as e:
+        print(f"[!] Critical Telegram Polling Error: {e}")
+        raise e
 
 if __name__ == "__main__":
     main()
