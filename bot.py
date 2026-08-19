@@ -512,15 +512,21 @@ async def process_telegram_webhook(update_dict: dict):
     await _global_app.process_update(update)
 
 def run_dummy_health_server(port: int = 10000):
-    """Listens on $PORT so Render free Web Services keep the bot active and pass health checks."""
+    """Listens on $PORT so Render/HF health checks and external uptime monitors pass with 200 OK."""
     import http.server
     import socketserver
+    import json
     class Handler(http.server.SimpleHTTPRequestHandler):
         def do_GET(self):
             self.send_response(200)
-            self.send_header("Content-type", "text/plain")
+            self.send_header("Content-type", "application/json")
             self.end_headers()
-            self.wfile.write(b"OK: Telegram Bot Active")
+            resp = json.dumps({
+                "status": "healthy",
+                "service": "telegram_bot",
+                "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat()
+            })
+            self.wfile.write(resp.encode("utf-8"))
         def log_message(self, format, *args):
             return
 
