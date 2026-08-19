@@ -432,10 +432,10 @@ def main():
     app.add_handler(MessageHandler(filters.ATTACHMENT | filters.VOICE | filters.AUDIO, file_handler))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, text_message_handler))
 
-    print("[*] Academic Assistant Telegram Bot starting polling (dropping stale webhooks/updates)...")
+    print("[*] Academic Assistant Telegram Bot polling started!")
     try:
         app.run_polling(
-            drop_pending_updates=True,
+            drop_pending_updates=False,
             bootstrap_retries=-1,
             timeout=30,
             poll_interval=1.0
