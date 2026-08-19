@@ -284,25 +284,35 @@ async def upload_lecture_material(
             dense_math = str(form.get("is_dense_math", "")).lower() in ("true", "1", "yes")
 
         # Extract file payload
-        file_obj = form.get("file")
-        if file_obj is not None:
-            if hasattr(file_obj, "filename") and file_obj.filename:
-                filename = file_obj.filename
-                content = await file_obj.read()
-            elif hasattr(file_obj, "read"):
-                filename = f"ios_upload_{int(time.time())}.m4a"
-                content = await file_obj.read()
-            elif isinstance(file_obj, bytes):
-                filename = f"ios_upload_{int(time.time())}.m4a"
-                content = file_obj
-            elif isinstance(file_obj, str):
-                filename = f"ios_upload_{int(time.time())}.txt"
-                content = file_obj.encode("utf-8")
-        else:
-            # Check any other uploaded form file
+        for key in ["file", "audio", "document", "data"]:
+            file_obj = form.get(key)
+            if file_obj is not None:
+                if hasattr(file_obj, "filename") and file_obj.filename:
+                    filename = file_obj.filename
+                    content = await file_obj.read()
+                    break
+                elif hasattr(file_obj, "read"):
+                    filename = f"ios_upload_{int(time.time())}.m4a"
+                    content = await file_obj.read()
+                    break
+                elif isinstance(file_obj, bytes):
+                    filename = f"ios_upload_{int(time.time())}.m4a"
+                    content = file_obj
+                    break
+                elif isinstance(file_obj, str) and len(file_obj) > 20:
+                    filename = f"ios_upload_{int(time.time())}.txt"
+                    content = file_obj.encode("utf-8")
+                    break
+
+        # If still not found, check any other uploaded form file
+        if not content:
             for k, v in form.items():
                 if hasattr(v, "filename") and v.filename:
                     filename = v.filename
+                    content = await v.read()
+                    break
+                elif hasattr(v, "read"):
+                    filename = f"ios_upload_{int(time.time())}.m4a"
                     content = await v.read()
                     break
     else:
@@ -312,6 +322,7 @@ async def upload_lecture_material(
         filename = f"ios_upload_{int(time.time())}{ext}"
 
     if not content or len(content) == 0:
+        print(f"[!] Upload 422: Content-Type was '{content_type}', but no content was received.")
         raise HTTPException(status_code=422, detail="No file content or audio stream received.")
 
     if not filename:
