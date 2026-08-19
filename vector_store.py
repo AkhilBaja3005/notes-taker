@@ -94,9 +94,15 @@ def index_file_in_vector_db(file_path: Path):
     )
     print(f"[+] Vector DB: Indexed {len(chunks)} chunks for {file_path.name}")
 
-def index_all_lectures_vector_db(lectures_dir: Path):
-    for f in lectures_dir.glob("*.md"):
-        index_file_in_vector_db(f)
+def index_all_lectures_vector_db(lectures_dir: Path, max_workers: int = 4):
+    """Multi-threaded concurrent vector indexing for fast vault hydration on boot."""
+    from concurrent.futures import ThreadPoolExecutor
+    markdown_files = [f for f in lectures_dir.glob("*.md") if not f.name.endswith("_MOC.md")]
+    if not markdown_files:
+        return
+
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        list(executor.map(index_file_in_vector_db, markdown_files))
 
 def semantic_search_notes(query_text: str, n_results: int = 4, course_filter: str = None) -> list[dict]:
     """Performs semantic similarity vector search across all indexed semester lectures."""

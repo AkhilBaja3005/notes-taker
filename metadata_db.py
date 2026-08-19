@@ -10,9 +10,20 @@ def get_db_path() -> Path:
         return Path("/data/metadata.db")
     return Path(os.environ.get("METADATA_DB_PATH", "./metadata.db"))
 
-def init_db():
+def get_db_connection() -> sqlite3.Connection:
+    """
+    Returns an optimized SQLite connection with Write-Ahead Logging (WAL) mode
+    and a 5000ms busy timeout to guarantee zero database locking under concurrent multi-process access.
+    """
     db_path = get_db_path()
-    conn = sqlite3.connect(db_path)
+    conn = sqlite3.connect(db_path, timeout=10.0)
+    conn.execute("PRAGMA journal_mode=WAL;")
+    conn.execute("PRAGMA busy_timeout=5000;")
+    conn.execute("PRAGMA synchronous=NORMAL;")
+    return conn
+
+def init_db():
+    conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS lecture_metadata (
@@ -48,7 +59,7 @@ def init_db():
 
 def save_chat_message(user_id: int, role: str, message: str, session_id: str = "default"):
     init_db()
-    conn = sqlite3.connect(get_db_path())
+    conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute("""
         INSERT INTO chat_history (user_id, session_id, role, message)
@@ -59,7 +70,7 @@ def save_chat_message(user_id: int, role: str, message: str, session_id: str = "
 
 def get_recent_chat_history(user_id: int, session_id: str = None, limit: int = 8) -> list[dict]:
     init_db()
-    conn = sqlite3.connect(get_db_path())
+    conn = get_db_connection()
     cursor = conn.cursor()
     if session_id:
         cursor.execute("""
@@ -79,7 +90,7 @@ def get_recent_chat_history(user_id: int, session_id: str = None, limit: int = 8
 
 def get_all_saved_chats(search_query: str = None, limit: int = 100) -> list[dict]:
     init_db()
-    conn = sqlite3.connect(get_db_path())
+    conn = get_db_connection()
     cursor = conn.cursor()
     if search_query and search_query.strip():
         q = f"%{search_query.strip()}%"
@@ -99,7 +110,7 @@ def get_all_saved_chats(search_query: str = None, limit: int = 100) -> list[dict
 
 def clear_user_chat_history(user_id: int):
     init_db()
-    conn = sqlite3.connect(get_db_path())
+    conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute("DELETE FROM chat_history WHERE user_id = ?", (user_id,))
     conn.commit()
@@ -122,7 +133,7 @@ def index_lecture_file(file_path: Path):
         has_flashcards = 1 if "## 4. Key Concept Q&A Flashcards" in content else 0
         has_theorems = 1 if any(w in content.lower() for w in ["theorem", "proof", "derivation"]) else 0
 
-        conn = sqlite3.connect(get_db_path())
+        conn = get_db_connection()
         cursor = conn.cursor()
         cursor.execute("""
             INSERT INTO lecture_metadata (file_name, course, topic, lecture_date, model_used, source_file, tags, has_flashcards, has_theorems)
@@ -150,7 +161,7 @@ def index_all_lectures(lectures_dir: Path):
 
 def query_courses() -> list[str]:
     init_db()
-    conn = sqlite3.connect(get_db_path())
+    conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute("SELECT DISTINCT course FROM lecture_metadata ORDER BY course ASC")
     rows = [r[0] for r in cursor.fetchall() if r[0]]

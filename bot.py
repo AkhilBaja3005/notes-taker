@@ -7,7 +7,8 @@ from pathlib import Path
 from dotenv import load_dotenv
 import matplotlib.pyplot as plt
 
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, constants
+from telegram.constants import ChatAction
 from telegram.ext import (
     ApplicationBuilder,
     CommandHandler,
@@ -423,12 +424,15 @@ async def text_message_handler(update: Update, context: ContextTypes.DEFAULT_TYP
     # If no local notes found for this concept, enable Google Search grounding
     enable_search = len(rag_context.strip()) == 0
 
+    await context.bot.send_chat_action(chat_id=update.effective_chat.id, action=ChatAction.TYPING)
+
     if enable_search:
         status_msg = await update.message.reply_text("🌐 Querying global academic knowledge...")
     else:
         status_msg = await update.message.reply_text("🤔 Referencing lecture notes...")
 
     try:
+        await context.bot.send_chat_action(chat_id=update.effective_chat.id, action=ChatAction.TYPING)
         raw_reply = generate_with_fallback(
             prompt=prompt,
             requested_model=current_bot_model,
