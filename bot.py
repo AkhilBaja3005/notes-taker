@@ -512,10 +512,11 @@ async def process_telegram_webhook(update_dict: dict):
     await _global_app.process_update(update)
 
 def run_dummy_health_server(port: int = 10000):
-    """Listens on $PORT so Render/HF health checks and external uptime monitors pass with 200 OK."""
+    """Listens on 0.0.0.0:$PORT so Render port scanners detect open port immediately."""
     import http.server
     import socketserver
     import json
+
     class Handler(http.server.SimpleHTTPRequestHandler):
         def do_GET(self):
             self.send_response(200)
@@ -530,11 +531,16 @@ def run_dummy_health_server(port: int = 10000):
         def log_message(self, format, *args):
             return
 
+    class ReusableTCPServer(socketserver.TCPServer):
+        allow_reuse_address = True
+
     try:
-        with socketserver.TCPServer(("", port), Handler) as httpd:
+        print(f"[*] Binding Render Health Server to 0.0.0.0:{port}...", flush=True)
+        with ReusableTCPServer(("0.0.0.0", port), Handler) as httpd:
+            print(f"[+] Render Health Server listening on 0.0.0.0:{port}", flush=True)
             httpd.serve_forever()
     except Exception as e:
-        print(f"[!] Health server note: {e}")
+        print(f"[!] Health server error: {e}", flush=True)
 
 def self_ping_render_keepalive(interval_seconds: int = 300):
     """
