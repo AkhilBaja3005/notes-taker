@@ -6,8 +6,12 @@ import asyncio
 import datetime
 from pathlib import Path
 from typing import Optional
-
+from dotenv import load_dotenv
 from fastapi import FastAPI, UploadFile, File, Form, Query, HTTPException, Request, Header, Depends
+from fastapi.responses import JSONResponse, FileResponse, StreamingResponse
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel
 
 load_dotenv()
 
