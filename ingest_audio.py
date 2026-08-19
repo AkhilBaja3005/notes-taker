@@ -123,11 +123,16 @@ def process_file(file_path_str: str, course_name: str, topic_name: str, lecture_
     - Course: "{course_name}"
     - Topic: "{topic_name}"
 
-    [ACOUSTIC ADAPTATION & ACCENT PRIMING INSTRUCTIONS]:
-    - Normalize diverse international accents and room reverberation.
-    - Accurately identify technical domain terminology, Greek notations, and vector calculus proofs without phonetic hallucination.
+    [CRITICAL GROUNDING & SILENCE DETECTION]:
+    - Ground your notes STRICTLY on the actual content, words, or document text provided.
+    - If the recording is completely silent, unintelligible noise, ambient background with no speech, or a brief silent mic check: DO NOT hallucinate or fabricate theoretical notes. Instead, output a concise diagnostic notice explaining that no intelligible speech was detected in the recording.
+    - Do NOT invent theorems, formulas, or full lectures that were not spoken or written in the material.
 
-    Generate your response in standard Markdown (compatible with Obsidian math, Mermaid diagrams & callouts) using EXACTLY the following structure:
+    [ACOUSTIC ADAPTATION & ACCENT PRIMING INSTRUCTIONS]:
+    - Normalize diverse international accents and room reverberation when speech is present.
+    - Accurately transcribe technical domain terminology, Greek notations, and vector calculus proofs spoken by the lecturer.
+
+    If intelligible academic content is present, generate your response in standard Markdown (compatible with Obsidian math, Mermaid diagrams & callouts) using EXACTLY the following structure:
     
     # {course_name}: {topic_name}
     
