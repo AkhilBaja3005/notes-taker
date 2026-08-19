@@ -1,9 +1,7 @@
 name: Deploy to Render
 
+# Strictly manually runnable by you via the GitHub Actions UI ("Run workflow" button)
 on:
-  push:
-    branches:
-      - main
   workflow_dispatch:
 
 jobs:

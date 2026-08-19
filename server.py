@@ -87,11 +87,26 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+from fastapi import WebSocket, WebSocketDisconnect
+
 @app.get("/_stcore/health")
 @app.get("/_stcore/host-config")
 @app.get("/health")
 def health_check():
     return {"status": "healthy", "service": "fastapi_react_hub"}
+
+@app.websocket("/{full_path:path}")
+async def catch_all_websocket(websocket: WebSocket, full_path: str):
+    """
+    Safely accept and drop any residual or legacy WebSocket probes (e.g. from previous Streamlit sessions)
+    so Starlette's StaticFiles handler never encounters an unexpected WebSocket scope.
+    """
+    await websocket.accept()
+    try:
+        while True:
+            await websocket.receive_text()
+    except (WebSocketDisconnect, Exception):
+        pass
 
 LECTURES_DIR = Path(os.environ.get("LECTURES_DIR", "./lectures")).resolve()
 INCOMING_DIR = Path(os.environ.get("WATCH_DIR", "./incoming_audio")).resolve()
