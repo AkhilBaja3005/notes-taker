@@ -99,6 +99,20 @@ async def send_smart_message(update: Update, text: str, max_chunk: int = 4000):
         except Exception:
             await update.message.reply_text(current_chunk.strip())
 
+# In-memory user session conversation history: {user_id: [{"role": "user"/"assistant", "content": str}]}
+user_chat_sessions = {}
+
+async def newchat_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not check_auth(update.effective_user.id):
+        return
+    uid = update.effective_user.id
+    user_chat_sessions[uid] = []
+    await update.message.reply_text(
+        "🧹 *New study conversation started!*\n"
+        "Previous chat history cleared. Ask any conceptual question, theorem derivation, or exam doubt to begin a fresh thread.",
+        parse_mode="Markdown"
+    )
+
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not check_auth(update.effective_user.id):
         await update.message.reply_text("⛔ Unauthorized access.")
@@ -108,6 +122,9 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "🎓 *Autonomous Academic Lecture Assistant*\n\n"
         "Send audio notes, slides, or documents with caption:\n"
         "`Course Name | Topic Name | YYYY-MM-DD`\n\n"
+        "💬 *Interactive Academic Chat:*\n"
+        "• Simply type any doubt or follow-up question directly in the chat!\n"
+        "• `/newchat` - Start a fresh conversation session\n\n"
         "⚡ *Commands:*\n"
         "• `/search <query>` - Semantic Vector Search across all notes\n"
         "• `/cheatsheet <Course>` - Master Exam Formula Sheet\n"
@@ -242,14 +259,15 @@ async def menu_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     keyboard = [
         [
-            InlineKeyboardButton("📅 Today's Briefing", callback_data="menu_today_recap"),
-            InlineKeyboardButton("📋 Cheatsheet", callback_data="menu_cheatsheet_list")
+            InlineKeyboardButton("💬 New Chat Session", callback_data="menu_new_chat"),
+            InlineKeyboardButton("📅 Today's Briefing", callback_data="menu_today_recap")
         ],
         [
-            InlineKeyboardButton("📇 Export Anki", callback_data="menu_anki_list"),
-            InlineKeyboardButton("🤖 Switch Model", callback_data="menu_model_select")
+            InlineKeyboardButton("📋 Cheatsheet", callback_data="menu_cheatsheet_list"),
+            InlineKeyboardButton("📇 Export Anki", callback_data="menu_anki_list")
         ],
         [
+            InlineKeyboardButton("🤖 Switch Model", callback_data="menu_model_select"),
             InlineKeyboardButton("ℹ️ System Status", callback_data="menu_status")
         ]
     ]
@@ -261,7 +279,15 @@ async def button_callback_handler(update: Update, context: ContextTypes.DEFAULT_
     query = update.callback_query
     await query.answer()
 
-    if query.data == "menu_today_recap":
+    if query.data == "menu_new_chat":
+        uid = update.effective_user.id
+        user_chat_sessions[uid] = []
+        await query.edit_message_text(
+            "🧹 *New study conversation started!*\n"
+            "Previous chat history cleared. Send any question or theorem derivation to begin a fresh thread.",
+            parse_mode="Markdown"
+        )
+    elif query.data == "menu_today_recap":
         today = datetime.date.today()
         await query.edit_message_text(f"⏳ Generating daily recap for {today}...")
         recap = generate_daily_recap(today, model=current_bot_model)
@@ -337,17 +363,46 @@ async def text_message_handler(update: Update, context: ContextTypes.DEFAULT_TYP
     if not text:
         return
 
-    # If user sends a general question or doubt
-    await update.message.reply_text(f"🔍 Searching lecture knowledge base for: *{text}*...", parse_mode="Markdown")
+    uid = update.effective_user.id
+    if uid not in user_chat_sessions:
+        user_chat_sessions[uid] = []
+
+    # 1. Search vector DB for relevant lecture context
     results = semantic_search_notes(text, n_results=3)
+    rag_context = ""
     if results:
-        reply = f"🧠 *Vector DB Search Results:*\n\n"
+        rag_context = "Relevant Course Syllabus Notes from Vault:\n"
         for r in results:
-            reply += f"📌 *{r['course']}* - _{r['topic']}_ (`{r['date']}`)\n`{r['section']}`\n{r['content'][:400]}...\n\n---\n\n"
+            rag_context += f"[{r['course']} - {r['topic']} ({r['date']}) | {r['section']}]:\n{r['content']}\n\n"
+
+    # 2. Build multi-turn contextual prompt
+    history_snippet = ""
+    for msg in user_chat_sessions[uid][-6:]:  # Keep last 6 conversation turns
+        history_snippet += f"{msg['role'].capitalize()}: {msg['content']}\n"
+
+    prompt = f"""
+    You are an expert STEM professor and academic study tutor.
+    Answer the student's question accurately using standard Markdown and LaTeX math ($...$ for inline, $$\\begin{{aligned}}...\\end{{aligned}}$$ for display math).
+
+    {rag_context}
+
+    Conversation History:
+    {history_snippet}
+    Student: {text}
+    """
+
+    status_msg = await update.message.reply_text("🤔 Thinking & referencing lecture notes...")
+    try:
+        reply = generate_with_fallback(prompt=prompt, requested_model=current_bot_model)
+        
+        # Save to session memory
+        user_chat_sessions[uid].append({"role": "user", "content": text})
+        user_chat_sessions[uid].append({"role": "assistant", "content": reply})
+
+        await status_msg.delete()
         await send_smart_message(update, reply)
-    else:
-        # Fallback to menu help
-        await start_command(update, context)
+    except Exception as e:
+        await status_msg.edit_text(f"❌ Error: {e}")
 
 def main():
     if not TELEGRAM_TOKEN:
@@ -366,6 +421,8 @@ def main():
     app = ApplicationBuilder().token(TELEGRAM_TOKEN).request(request_client).build()
     app.add_handler(CommandHandler("start", start_command))
     app.add_handler(CommandHandler("help", start_command))
+    app.add_handler(CommandHandler("newchat", newchat_command))
+    app.add_handler(CommandHandler("clear", newchat_command))
     app.add_handler(CommandHandler("menu", menu_command))
     app.add_handler(CommandHandler("recap", recap_command))
     app.add_handler(CommandHandler("exam", exam_command))
