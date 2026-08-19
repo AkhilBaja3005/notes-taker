@@ -520,7 +520,7 @@ def run_dummy_health_server(port: int = 10000):
             self.send_response(200)
             self.send_header("Content-type", "text/plain")
             self.end_headers()
-            self.wfile.write(b"Telegram Bot Poller Active")
+            self.wfile.write(b"OK: Telegram Bot Active")
         def log_message(self, format, *args):
             return
 
@@ -530,10 +530,33 @@ def run_dummy_health_server(port: int = 10000):
     except Exception as e:
         print(f"[!] Health server note: {e}")
 
+def self_ping_render_keepalive(interval_seconds: int = 600):
+    """Periodically pings the Render service URL to prevent free tier spin-down/sleeping."""
+    import urllib.request
+    import time
+    time.sleep(30)  # Initial boot delay
+    render_url = os.environ.get("RENDER_EXTERNAL_URL", "").strip().rstrip("/")
+    if not render_url:
+        return
+
+    print(f"[*] Render Self-Ping Keepalive Daemon active. Monitoring: {render_url} (every {interval_seconds}s)")
+    while True:
+        try:
+            req = urllib.request.Request(
+                f"{render_url}/health",
+                headers={"User-Agent": "RenderKeepalive/2.0"}
+            )
+            with urllib.request.urlopen(req, timeout=15) as resp:
+                pass
+        except Exception:
+            pass
+        time.sleep(interval_seconds)
+
 def main():
     import threading
     render_port = int(os.environ.get("PORT", "10000"))
     threading.Thread(target=run_dummy_health_server, args=(render_port,), daemon=True).start()
+    threading.Thread(target=self_ping_render_keepalive, daemon=True).start()
 
     app = build_bot_app()
     if not app:
