@@ -22,7 +22,8 @@ def optimize_audio_file(file_path: Path, max_part_minutes: int = 45) -> list[Pat
     file_size_mb = file_path.stat().st_size / (1024 * 1024)
     out_dir = file_path.parent / "optimized_audio"
     out_dir.mkdir(parents=True, exist_ok=True)
-    out_file = out_dir / f"opt_{file_path.stem}.m4a"
+    safe_stem = "".join([c if c.isalnum() or c in ("-", "_", ".") else "_" for c in file_path.stem])
+    out_file = out_dir / f"opt_{safe_stem}.m4a"
 
     # 1. Try macOS built-in afconvert (Universal & zero-dependency on Mac)
     afconvert_bin = shutil.which("afconvert")

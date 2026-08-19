@@ -86,6 +86,16 @@ def process_file(file_path_str: str, course_name: str, topic_name: str, lecture_
     if not file_path.exists():
         raise FileNotFoundError(f"File not found: {file_path_str}")
 
+    # Sanitize unicode characters in filename (e.g. iOS narrow no-break space \u202f in timestamped recordings)
+    clean_stem = "".join([c if ord(c) < 128 and (c.isalnum() or c in ("-", "_", ".", " ")) else "_" for c in file_path.stem]).strip()
+    if clean_stem != file_path.stem:
+        new_path = file_path.parent / f"{clean_stem}{file_path.suffix}"
+        try:
+            file_path.rename(new_path)
+            file_path = new_path
+        except Exception:
+            pass
+
     suffix = file_path.suffix.lower()
     is_audio = suffix in SUPPORTED_AUDIO_EXTS
 
