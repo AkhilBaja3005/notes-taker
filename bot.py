@@ -377,6 +377,11 @@ async def text_message_handler(update: Update, context: ContextTypes.DEFAULT_TYP
         for r in results:
             rag_context += f"[{r['course']} - {r['topic']} ({r['date']}) | {r['section']}]:\n{r['content']}\n\n"
 
+    # 2. Build multi-turn contextual prompt from database history
+    history_snippet = ""
+    for msg in history_turns:
+        history_snippet += f"{msg['role'].capitalize()}: {msg['content']}\n"
+
     # Check if user explicitly asked for detailed proof / derivation
     wants_detailed = any(w in text.lower() for w in ["detailed", "derive", "derivation", "step by step", "full proof", "explain in depth"])
 
