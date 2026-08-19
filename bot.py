@@ -109,10 +109,14 @@ async def newchat_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not check_auth(update.effective_user.id):
         return
     uid = update.effective_user.id
-    clear_user_chat_history(uid)
+    new_sess = datetime.datetime.now().strftime("Session_%Y%m%d_%H%M%S")
+    if not hasattr(text_message_handler, "active_sessions"):
+        text_message_handler.active_sessions = {}
+    text_message_handler.active_sessions[uid] = new_sess
+    
     await update.message.reply_text(
-        "🧹 *New study conversation started!*\n"
-        "Previous chat history cleared and reset in database. Ask any question to begin a fresh thread.",
+        "🧹 *New study thread started!*\n"
+        "Previous conversation has been saved to your archive. Ask any new question to begin a fresh context.",
         parse_mode="Markdown"
     )
 
@@ -367,7 +371,15 @@ async def text_message_handler(update: Update, context: ContextTypes.DEFAULT_TYP
         return
 
     uid = update.effective_user.id
-    history_turns = get_recent_chat_history(uid, limit=8)
+    # Active session tracker: {user_id: session_id}
+    if not hasattr(text_message_handler, "active_sessions"):
+        text_message_handler.active_sessions = {}
+    
+    if uid not in text_message_handler.active_sessions:
+        text_message_handler.active_sessions[uid] = datetime.datetime.now().strftime("Session_%Y%m%d_%H%M%S")
+    
+    current_session_id = text_message_handler.active_sessions[uid]
+    history_turns = get_recent_chat_history(uid, session_id=current_session_id, limit=6)
 
     # 1. Search vector DB for relevant lecture context
     results = semantic_search_notes(text, n_results=3)
@@ -398,10 +410,11 @@ async def text_message_handler(update: Update, context: ContextTypes.DEFAULT_TYP
     Generate your output in TWO clearly separated sections:
 
     === TELEGRAM_DIRECT ===
-    - Provide a concise, direct, high-yield answer (3 to 6 bullet points maximum).
-    - Use clean, easily readable plain text and standard notation (e.g. P(A|B) = [P(B|A)*P(A)] / P(B)).
-    - Avoid huge multi-line raw LaTeX aligned code blocks so it looks great and clean on a mobile Telegram screen.
-    - End with: "💡 *Tip*: Type 'derive in detail' for the full rigorous mathematical proof, or view the complete derivation on your Web Dashboard."
+    - Answer in natural, conversational, crystal-clear plain English.
+    - DO NOT use unrendered raw equation code like `Z^(l) = W^(l) A^(l-1)` or `delta^(l)`.
+    - Instead, explain intuitively with simple text (e.g. "We multiply the incoming error by the weights and activation derivative").
+    - Give a quick, 3-4 sentence intuitive summary and the bottom line result.
+    - Add at the end: "\n\n💡 *Tip*: Type 'derive in detail' for the full math proof, or check your Web Dashboard."
 
     === FULL_DETAILED_PROOF ===
     - Comprehensive, publication-quality academic reference with complete derivations, rigorous LaTeX display math ($$\\begin{{aligned}}...\\end{{aligned}}$$), definitions, worked numerical examples, and failure modes.
@@ -434,9 +447,9 @@ async def text_message_handler(update: Update, context: ContextTypes.DEFAULT_TYP
         # Decide what to send to Telegram
         telegram_output = detailed_part if wants_detailed else direct_part
 
-        # Save the rich comprehensive detailed version to database for desktop viewing
-        save_chat_message(uid, role="user", message=text)
-        save_chat_message(uid, role="assistant", message=detailed_part)
+        # Save the rich comprehensive detailed version to database (tagged with current_session_id)
+        save_chat_message(uid, role="user", message=text, session_id=current_session_id)
+        save_chat_message(uid, role="assistant", message=detailed_part, session_id=current_session_id)
 
         await status_msg.delete()
         await send_smart_message(update, telegram_output)

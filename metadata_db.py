@@ -57,36 +57,51 @@ def save_chat_message(user_id: int, role: str, message: str, session_id: str = "
     conn.commit()
     conn.close()
 
-def get_recent_chat_history(user_id: int, session_id: str = "default", limit: int = 10) -> list[dict]:
+def get_recent_chat_history(user_id: int, session_id: str = None, limit: int = 8) -> list[dict]:
     init_db()
     conn = sqlite3.connect(get_db_path())
     cursor = conn.cursor()
-    cursor.execute("""
-        SELECT role, message, created_at FROM chat_history
-        WHERE user_id = ? AND session_id = ?
-        ORDER BY id DESC LIMIT ?
-    """, (user_id, session_id, limit))
+    if session_id:
+        cursor.execute("""
+            SELECT role, message, created_at FROM chat_history
+            WHERE user_id = ? AND session_id = ?
+            ORDER BY id DESC LIMIT ?
+        """, (user_id, session_id, limit))
+    else:
+        cursor.execute("""
+            SELECT role, message, created_at FROM chat_history
+            WHERE user_id = ?
+            ORDER BY id DESC LIMIT ?
+        """, (user_id, limit))
     rows = cursor.fetchall()
     conn.close()
     return [{"role": r[0], "content": r[1], "timestamp": r[2]} for r in reversed(rows)]
 
-def get_all_saved_chats(limit: int = 50) -> list[dict]:
+def get_all_saved_chats(search_query: str = None, limit: int = 100) -> list[dict]:
     init_db()
     conn = sqlite3.connect(get_db_path())
     cursor = conn.cursor()
-    cursor.execute("""
-        SELECT user_id, role, message, created_at FROM chat_history
-        ORDER BY id DESC LIMIT ?
-    """, (limit,))
+    if search_query and search_query.strip():
+        q = f"%{search_query.strip()}%"
+        cursor.execute("""
+            SELECT user_id, session_id, role, message, created_at FROM chat_history
+            WHERE message LIKE ?
+            ORDER BY id DESC LIMIT ?
+        """, (q, limit))
+    else:
+        cursor.execute("""
+            SELECT user_id, session_id, role, message, created_at FROM chat_history
+            ORDER BY id DESC LIMIT ?
+        """, (limit,))
     rows = cursor.fetchall()
     conn.close()
-    return [{"user_id": r[0], "role": r[1], "content": r[2], "timestamp": r[3]} for r in reversed(rows)]
+    return [{"user_id": r[0], "session_id": r[1], "role": r[2], "content": r[3], "timestamp": r[4]} for r in rows]
 
-def clear_user_chat_history(user_id: int, session_id: str = "default"):
+def clear_user_chat_history(user_id: int):
     init_db()
     conn = sqlite3.connect(get_db_path())
     cursor = conn.cursor()
-    cursor.execute("DELETE FROM chat_history WHERE user_id = ? AND session_id = ?", (user_id, session_id))
+    cursor.execute("DELETE FROM chat_history WHERE user_id = ?", (user_id,))
     conn.commit()
     conn.close()
 

@@ -348,30 +348,41 @@ with tab_anki:
 
 with tab_history:
     st.subheader("💬 Study Chat History & Mobile Telegram Sessions")
-    st.markdown("All questions, answers, and theorem derivations from your **Telegram Mobile Bot** and Web sessions are stored here on persistent disk.")
+    st.markdown("All questions, answers, and theorem derivations from your **Telegram Mobile Bot** and Web sessions are archived here on persistent disk.")
 
-    all_chats = get_all_saved_chats(limit=100)
+    c_search, c_filter = st.columns([3, 1])
+    with c_search:
+        search_kw = st.text_input("🔍 Search Past Chats & Derivations", placeholder="e.g. Bayes, Backprop, KKT, Gradient")
+    
+    all_chats = get_all_saved_chats(search_query=search_kw, limit=100)
+    
     if not all_chats:
-        st.info("No saved conversation history yet. Start asking questions in Telegram or Web!")
+        st.info("No conversations found matching your search. Start asking questions in Telegram or Web!")
     else:
-        c_clear, c_count = st.columns([1, 4])
-        with c_clear:
-            if st.button("🗑️ Clear All Chat History", type="secondary"):
-                clear_user_chat_history(8327334588)
-                st.success("Chat history cleared.")
-                st.rerun()
-        with c_count:
-            st.markdown(f"**Total Logged Interactions:** `{len(all_chats)}`")
-
-        st.divider()
+        # Group chats by session_id
+        sessions = {}
         for c in all_chats:
-            role = c["role"]
-            ts = c.get("timestamp", "")
-            if role == "user":
-                with st.chat_message("user"):
-                    st.markdown(f"**🧑 You** `[{ts}]`")
-                    st.markdown(c["content"])
-            else:
-                with st.chat_message("assistant"):
-                    st.markdown(f"**🎓 Assistant** `[{ts}]`")
-                    st.markdown(c["content"])
+            s_id = c.get("session_id", "Default Session") or "Default Session"
+            if s_id not in sessions:
+                sessions[s_id] = []
+            sessions[s_id].append(c)
+
+        st.markdown(f"**Total Archived Interactions:** `{len(all_chats)}` across `{len(sessions)}` study threads")
+        st.divider()
+
+        for s_id, msgs in sessions.items():
+            first_user_q = next((m["content"] for m in msgs if m["role"] == "user"), "Study Session")
+            exp_label = f"📁 Thread: {first_user_q[:60]}... (`{s_id}` - {len(msgs)} messages)"
+            
+            with st.expander(exp_label, expanded=True):
+                for m in msgs:
+                    role = m["role"]
+                    ts = m.get("timestamp", "")
+                    if role == "user":
+                        with st.chat_message("user"):
+                            st.markdown(f"**🧑 You** `[{ts}]`")
+                            st.markdown(m["content"])
+                    else:
+                        with st.chat_message("assistant"):
+                            st.markdown(f"**🎓 Comprehensive Academic Derivation** `[{ts}]`")
+                            st.markdown(m["content"])
