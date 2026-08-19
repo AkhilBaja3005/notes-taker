@@ -24,6 +24,52 @@ def init_db():
     """)
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_course ON lecture_metadata (course)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_date ON lecture_metadata (lecture_date)")
+
+    # Persistent Chat History Schema
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS chat_history (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER,
+            session_id TEXT,
+            role TEXT,
+            message TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_user_chat ON chat_history (user_id, session_id)")
+    conn.commit()
+    conn.close()
+
+def save_chat_message(user_id: int, role: str, message: str, session_id: str = "default"):
+    init_db()
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("""
+        INSERT INTO chat_history (user_id, session_id, role, message)
+        VALUES (?, ?, ?, ?)
+    """, (user_id, session_id, role, message))
+    conn.commit()
+    conn.close()
+
+def get_recent_chat_history(user_id: int, session_id: str = "default", limit: int = 10) -> list[dict]:
+    init_db()
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT role, message FROM chat_history
+        WHERE user_id = ? AND session_id = ?
+        ORDER BY id DESC LIMIT ?
+    """, (user_id, session_id, limit))
+    rows = cursor.fetchall()
+    conn.close()
+    # Reverse so it's in chronological order
+    return [{"role": r[0], "content": r[1]} for r in reversed(rows)]
+
+def clear_user_chat_history(user_id: int, session_id: str = "default"):
+    init_db()
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM chat_history WHERE user_id = ? AND session_id = ?", (user_id, session_id))
     conn.commit()
     conn.close()
 

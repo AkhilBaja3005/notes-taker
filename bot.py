@@ -99,17 +99,16 @@ async def send_smart_message(update: Update, text: str, max_chunk: int = 4000):
         except Exception:
             await update.message.reply_text(current_chunk.strip())
 
-# In-memory user session conversation history: {user_id: [{"role": "user"/"assistant", "content": str}]}
-user_chat_sessions = {}
+from metadata_db import query_courses, save_chat_message, get_recent_chat_history, clear_user_chat_history
 
 async def newchat_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not check_auth(update.effective_user.id):
         return
     uid = update.effective_user.id
-    user_chat_sessions[uid] = []
+    clear_user_chat_history(uid)
     await update.message.reply_text(
         "🧹 *New study conversation started!*\n"
-        "Previous chat history cleared. Ask any conceptual question, theorem derivation, or exam doubt to begin a fresh thread.",
+        "Previous chat history cleared and reset in database. Ask any question to begin a fresh thread.",
         parse_mode="Markdown"
     )
 
@@ -364,8 +363,7 @@ async def text_message_handler(update: Update, context: ContextTypes.DEFAULT_TYP
         return
 
     uid = update.effective_user.id
-    if uid not in user_chat_sessions:
-        user_chat_sessions[uid] = []
+    history_turns = get_recent_chat_history(uid, limit=8)
 
     # 1. Search vector DB for relevant lecture context
     results = semantic_search_notes(text, n_results=3)
@@ -375,9 +373,9 @@ async def text_message_handler(update: Update, context: ContextTypes.DEFAULT_TYP
         for r in results:
             rag_context += f"[{r['course']} - {r['topic']} ({r['date']}) | {r['section']}]:\n{r['content']}\n\n"
 
-    # 2. Build multi-turn contextual prompt
+    # 2. Build multi-turn contextual prompt from database history
     history_snippet = ""
-    for msg in user_chat_sessions[uid][-6:]:  # Keep last 6 conversation turns
+    for msg in history_turns:
         history_snippet += f"{msg['role'].capitalize()}: {msg['content']}\n"
 
     prompt = f"""
@@ -395,9 +393,9 @@ async def text_message_handler(update: Update, context: ContextTypes.DEFAULT_TYP
     try:
         reply = generate_with_fallback(prompt=prompt, requested_model=current_bot_model)
         
-        # Save to session memory
-        user_chat_sessions[uid].append({"role": "user", "content": text})
-        user_chat_sessions[uid].append({"role": "assistant", "content": reply})
+        # Save both user prompt and assistant response to SQLite database
+        save_chat_message(uid, role="user", message=text)
+        save_chat_message(uid, role="assistant", message=reply)
 
         await status_msg.delete()
         await send_smart_message(update, reply)
