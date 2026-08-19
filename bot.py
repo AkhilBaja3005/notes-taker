@@ -121,28 +121,46 @@ async def newchat_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode="Markdown"
     )
 
-async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not check_auth(update.effective_user.id):
         await update.message.reply_text("⛔ Unauthorized access.")
         return
 
     msg = (
-        "🎓 *Autonomous Academic Lecture Assistant*\n\n"
-        "Send audio notes, slides, or documents with caption:\n"
-        "`Course Name | Topic Name | YYYY-MM-DD`\n\n"
-        "💬 *Interactive Academic Chat:*\n"
-        "• Simply type any doubt or follow-up question directly in the chat!\n"
-        "• `/newchat` - Start a fresh conversation session\n\n"
-        "⚡ *Commands:*\n"
-        "• `/search <query>` - Semantic Vector Search across all notes\n"
-        "• `/cheatsheet <Course>` - Master Exam Formula Sheet\n"
-        "• `/anki <course>` - Export complete Anki Flashcard deck (.apkg)\n"
-        "• `/recap [YYYY-MM-DD]` - Daily Multi-Subject briefing\n"
-        "• `/exam Course | StartDate | EndDate | Question` - Exam Doubt Tutor\n"
-        "• `/latex <formula>` - Render LaTeX math to image\n"
-        "• `/menu` - Interactive Control Panel"
+        "🎓 *Autonomous Academic Lecture Assistant - Command Directory*\n\n"
+        "Here are all available features and commands:\n\n"
+        "🎙️ *1. Ingestion & Note Generation:*\n"
+        "• Send any voice note, audio file (`.m4a`, `.mp3`, `.wav`), or academic document (`.pdf`, `.docx`, `.pptx`).\n"
+        "• *(Optional Caption)*: `Course Name | Topic Name | YYYY-MM-DD`\n"
+        "• Automatically generates structured notes, KaTeX math, mind maps, updates Obsidian, and indexes to vector DB.\n\n"
+        "🔍 *2. Semantic Search & RAG:*\n"
+        "• `/search <query>` - Run semantic ChromaDB search across all semester notes.\n"
+        "• *Example:* `/search What are the KKT complementary slackness conditions?`\n\n"
+        "📋 *3. Exam Cheatsheet Synthesis:*\n"
+        "• `/cheatsheet <Course>` - Synthesize 1-page master formula sheet.\n"
+        "• *Example:* `/cheatsheet Optimization`\n\n"
+        "📇 *4. Spaced Repetition Flashcards & Anki:*\n"
+        "• `/anki <Course>` - Export complete flashcard deck as `.apkg` file directly to Telegram.\n"
+        "• *Example:* `/anki Machine Learning`\n\n"
+        "📐 *5. LaTeX KaTeX Math Image Generator:*\n"
+        "• `/latex <formula>` - Render LaTeX equations into high-res images.\n"
+        "• *Example:* `/latex \\nabla_w L = \\frac{1}{m}\\sum_{i=1}^m (\\hat{y}_i - y_i)x_i`\n\n"
+        "📅 *6. Daily Multi-Subject Briefing:*\n"
+        "• `/recap` - Daily briefing of all lectures recorded today.\n"
+        "• `/recap YYYY-MM-DD` - Daily briefing for a specific date.\n\n"
+        "🎯 *7. Date-Filtered Exam Syllabus Tutor:*\n"
+        "• `/exam Course | StartDate | EndDate | Question`\n"
+        "• *Example:* `/exam Machine Learning | 2026-08-01 | 2026-08-19 | Explain Backprop step 3`\n\n"
+        "💬 *8. Interactive AI Chat & Memory:*\n"
+        "• Type any doubt or derivation question directly to chat with Gemini!\n"
+        "• `/newchat` (or `/clear`) - Start a fresh conversation session.\n"
+        "• `/menu` - Interactive inline button control panel.\n\n"
+        "🌐 *Web Dashboard:* [abaja-notes-taker.hf.space](https://abaja-notes-taker.hf.space)"
     )
-    await update.message.reply_text(msg, parse_mode="Markdown")
+    await update.message.reply_text(msg, parse_mode="Markdown", disable_web_page_preview=True)
+
+async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await help_command(update, context)
 
 async def search_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not check_auth(update.effective_user.id):
