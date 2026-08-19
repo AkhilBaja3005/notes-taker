@@ -179,11 +179,14 @@ def send_startup_deployment_notification():
         f"💬 Send `/menu` or ask any question to begin!"
     )
 
+    proxy_base_url = os.environ.get("TELEGRAM_API_BASE_URL", "").strip().rstrip("/")
+    api_root = proxy_base_url if proxy_base_url else "https://api.telegram.org"
+
     client = httpx.Client(timeout=30.0)
     for uid in target_users:
         for attempt in range(1, 4):
             try:
-                url = f"https://api.telegram.org/bot{token}/sendMessage"
+                url = f"{api_root}/bot{token}/sendMessage"
                 resp = client.post(
                     url,
                     json={
