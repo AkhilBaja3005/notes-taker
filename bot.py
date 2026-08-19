@@ -377,43 +377,64 @@ async def text_message_handler(update: Update, context: ContextTypes.DEFAULT_TYP
         for r in results:
             rag_context += f"[{r['course']} - {r['topic']} ({r['date']}) | {r['section']}]:\n{r['content']}\n\n"
 
-    # 2. Build multi-turn contextual prompt from database history
-    history_snippet = ""
-    for msg in history_turns:
-        history_snippet += f"{msg['role'].capitalize()}: {msg['content']}\n"
+    # Check if user explicitly asked for detailed proof / derivation
+    wants_detailed = any(w in text.lower() for w in ["detailed", "derive", "derivation", "step by step", "full proof", "explain in depth"])
 
     prompt = f"""
     You are an expert STEM professor and academic study tutor.
-    Answer the student's question accurately using standard Markdown and LaTeX math ($...$ for inline, $$\\begin{{aligned}}...\\end{{aligned}}$$ for display math).
+    The student is asking: "{text}"
 
     {rag_context}
 
     Conversation History:
     {history_snippet}
-    Student: {text}
+
+    INSTRUCTIONS:
+    Generate your output in TWO clearly separated sections:
+
+    === TELEGRAM_DIRECT ===
+    - Provide a concise, direct, high-yield answer (3 to 6 bullet points maximum).
+    - Use clean, easily readable plain text and standard notation (e.g. P(A|B) = [P(B|A)*P(A)] / P(B)).
+    - Avoid huge multi-line raw LaTeX aligned code blocks so it looks great and clean on a mobile Telegram screen.
+    - End with: "💡 *Tip*: Type 'derive in detail' for the full rigorous mathematical proof, or view the complete derivation on your Web Dashboard."
+
+    === FULL_DETAILED_PROOF ===
+    - Comprehensive, publication-quality academic reference with complete derivations, rigorous LaTeX display math ($$\\begin{{aligned}}...\\end{{aligned}}$$), definitions, worked numerical examples, and failure modes.
     """
 
     # If no local notes found for this concept, enable Google Search grounding
     enable_search = len(rag_context.strip()) == 0
 
     if enable_search:
-        status_msg = await update.message.reply_text("🌐 Querying global academic knowledge & web grounding...")
+        status_msg = await update.message.reply_text("🌐 Querying global academic knowledge...")
     else:
-        status_msg = await update.message.reply_text("🤔 Referencing lecture notes & deriving solution...")
+        status_msg = await update.message.reply_text("🤔 Referencing lecture notes...")
 
     try:
-        reply = generate_with_fallback(
+        raw_reply = generate_with_fallback(
             prompt=prompt,
             requested_model=current_bot_model,
             enable_web_search=enable_search
         )
         
-        # Save both user prompt and assistant response to SQLite database (HF Persistent Bucket)
+        # Parse direct vs detailed sections
+        if "=== TELEGRAM_DIRECT ===" in raw_reply and "=== FULL_DETAILED_PROOF ===" in raw_reply:
+            parts = raw_reply.split("=== FULL_DETAILED_PROOF ===")
+            direct_part = parts[0].replace("=== TELEGRAM_DIRECT ===", "").strip()
+            detailed_part = parts[1].strip()
+        else:
+            direct_part = raw_reply.strip()
+            detailed_part = raw_reply.strip()
+
+        # Decide what to send to Telegram
+        telegram_output = detailed_part if wants_detailed else direct_part
+
+        # Save the rich comprehensive detailed version to database for desktop viewing
         save_chat_message(uid, role="user", message=text)
-        save_chat_message(uid, role="assistant", message=reply)
+        save_chat_message(uid, role="assistant", message=detailed_part)
 
         await status_msg.delete()
-        await send_smart_message(update, reply)
+        await send_smart_message(update, telegram_output)
     except Exception as e:
         await status_msg.edit_text(f"❌ Error: {e}")
 
