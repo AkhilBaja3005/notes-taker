@@ -264,7 +264,7 @@ def main():
                 if exit_code is not None:
                     print(f"[!] Warning: Service '{name}' (PID {proc.pid}) exited with code {exit_code}. Auto-restarting in 3s...")
                     time.sleep(3)
-                    new_proc = subprocess.Popen(cmd, stdout=sys.stdout, stderr=sys.stderr)
+                    new_proc = subprocess.Popen(cmd, stdout=sys.stdout, stderr=sys.stderr, env=os.environ.copy())
                     process_registry[name] = (new_proc, cmd)
                     print(f"[+] Service '{name}' successfully restarted with new PID {new_proc.pid}!")
 
@@ -276,6 +276,16 @@ def main():
             time.sleep(2)
     except KeyboardInterrupt:
         signal_handler(None, None)
+    except Exception as e:
+        print(f"[!] Critical main supervisor error: {e}")
+        import traceback
+        traceback.print_exc()
+        signal_handler(None, None)
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception as e:
+        print(f"[!] Fatal entrypoint error: {e}")
+        import traceback
+        traceback.print_exc()
