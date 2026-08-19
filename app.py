@@ -128,8 +128,36 @@ with tab_upload:
         type=["m4a", "mp3", "wav", "aac", "ogg", "flac", "pdf", "docx", "doc", "txt", "md", "pptx", "ppt"]
     )
 
-    if st.button("Process & Generate Structured Notes", type="primary", disabled=(uploaded_file is None or not up_course or not up_topic)):
-        with st.spinner(f"Analyzing material with optimal Gemini tier & generating mind map..."):
+    # Automatic fallback extraction from filename if manual fields are left empty
+    auto_course = up_course.strip()
+    auto_topic = up_topic.strip()
+    auto_date = up_date
+
+    if uploaded_file and (not auto_course or not auto_topic):
+        stem = Path(uploaded_file.name).stem
+        parts = [p.strip() for p in stem.replace("-", "_").split("_") if p.strip()]
+        
+        # Check for date in filename (e.g. YYYY-MM-DD or YYYYMMDD)
+        date_match = re.search(r'(\d{4}[-_]\d{2}[-_]\d{2})', uploaded_file.name)
+        if date_match:
+            try:
+                auto_date = datetime.date.fromisoformat(date_match.group(1).replace("_", "-"))
+            except ValueError:
+                pass
+
+        if not auto_course:
+            auto_course = parts[0] if parts else "General"
+        if not auto_topic:
+            auto_topic = " ".join(parts[1:]) if len(parts) > 1 else stem
+
+    is_btn_disabled = (uploaded_file is None or not (auto_course or up_course) or not (auto_topic or up_topic))
+
+    if st.button("Process & Generate Structured Notes", type="primary", disabled=is_btn_disabled):
+        final_course = up_course.strip() if up_course.strip() else auto_course
+        final_topic = up_topic.strip() if up_topic.strip() else auto_topic
+        final_date = up_date if up_course.strip() else auto_date
+
+        with st.spinner(f"Analyzing [{final_course}] {final_topic} with Gemini & generating notes..."):
             incoming_dir = Path("./incoming_audio")
             incoming_dir.mkdir(parents=True, exist_ok=True)
             save_path = incoming_dir / uploaded_file.name
@@ -140,13 +168,13 @@ with tab_upload:
             try:
                 out_path = process_file(
                     file_path_str=str(save_path),
-                    course_name=up_course,
-                    topic_name=up_topic,
-                    lecture_date=up_date.isoformat(),
+                    course_name=final_course,
+                    topic_name=final_topic,
+                    lecture_date=final_date.isoformat(),
                     model=active_model,
                     is_dense_math=is_dense_math
                 )
-                st.success(f"✅ Notes successfully generated, synced to Obsidian, and indexed in Vector DB!")
+                st.success(f"✅ Notes successfully generated for '{final_course} - {final_topic}', synced to Obsidian, and indexed in Vector DB!")
                 st.markdown(out_path.read_text(encoding="utf-8"))
             except Exception as e:
                 st.error(f"Error processing file: {e}")
