@@ -67,13 +67,21 @@ def self_ping_keepalive(interval_seconds: int = 300):
         time.sleep(interval_seconds)
 
 def setup_persistent_hf_storage():
-    """Maps ./lectures, ./vector_db, and ./incoming_audio to /data if bucket is present."""
+    """
+    If running in Hugging Face with a Storage Bucket mounted at /data:
+    Configures /data/lectures, /data/vector_db, and /data/incoming_audio as the primary storage paths
+    so all notes, databases, and decks are written directly into the persistent storage bucket.
+    """
     data_mount = Path("/data")
     if data_mount.exists() and os.access(data_mount, os.W_OK):
         print("[+] Hugging Face Persistent Storage Bucket detected at /data!")
         (data_mount / "lectures").mkdir(parents=True, exist_ok=True)
         (data_mount / "vector_db").mkdir(parents=True, exist_ok=True)
         (data_mount / "incoming_audio").mkdir(parents=True, exist_ok=True)
+
+        os.environ["LECTURES_DIR"] = str(data_mount / "lectures")
+        os.environ["WATCH_DIR"] = str(data_mount / "incoming_audio")
+        print(f"[+] Active storage redirected directly to Persistent Bucket: {data_mount}")
 
 def signal_handler(sig, frame):
     print("\n[!] Shutting down all services...")
@@ -89,9 +97,21 @@ def signal_handler(sig, frame):
 def startup_vault_hydration():
     """Hydrates notes from remote repo, compiles MOCs, and re-indexes SQLite/ChromaDB."""
     setup_persistent_hf_storage()
-    lectures_dir = Path("./lectures")
+    
+    lectures_dir = Path(os.environ.get("LECTURES_DIR", "./lectures"))
     lectures_dir.mkdir(parents=True, exist_ok=True)
     
+    # If /data is mounted and empty, copy any existing local notes over
+    local_sample_dir = Path("./lectures")
+    if str(lectures_dir) != str(local_sample_dir) and local_sample_dir.exists():
+        for f in local_sample_dir.glob("*.md"):
+            dest = lectures_dir / f.name
+            if not dest.exists():
+                try:
+                    dest.write_text(f.read_text(encoding="utf-8"), encoding="utf-8")
+                except Exception:
+                    pass
+
     repo_url = os.environ.get("GIT_VAULT_REPO_URL")
     if repo_url:
         print("[*] Hydrating notes from Obsidian remote repository...")
@@ -106,7 +126,7 @@ def startup_vault_hydration():
         update_all_course_mocs(lectures_dir)
         index_all_lectures(lectures_dir)
         index_all_lectures_vector_db(lectures_dir)
-        print("[+] Vault hydration and indexing complete!")
+        print(f"[+] Vault hydration and indexing complete on: {lectures_dir}")
     except Exception as e:
         print(f"[!] Indexing notice: {e}")
 

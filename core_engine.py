@@ -28,7 +28,7 @@ LECTURES_DIR = Path(os.environ.get("LECTURES_DIR", "./lectures"))
 _ACTIVE_SYLLABUS_CACHES = {}
 
 def clean_and_repair_latex(markdown_text: str) -> str:
-    """
+    r"""
     Comprehensive regex sanitizer & normalizer that converts non-standard LaTeX packages,
     fixes single backslash linebreaks `\ `, wraps isolated `\begin{aligned}` blocks in `$$`,
     and guarantees 100% rendering across Streamlit (KaTeX) and Obsidian (MathJax).
