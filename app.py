@@ -128,29 +128,42 @@ with tab_upload:
         type=["m4a", "mp3", "wav", "aac", "ogg", "flac", "pdf", "docx", "doc", "txt", "md", "pptx", "ppt"]
     )
 
-    # Automatic fallback extraction from filename if manual fields are left empty
+    # Universal metadata auto-extraction across all audio, document, and slide formats
     auto_course = up_course.strip()
     auto_topic = up_topic.strip()
     auto_date = up_date
 
-    if uploaded_file and (not auto_course or not auto_topic):
+    if uploaded_file:
         stem = Path(uploaded_file.name).stem
-        parts = [p.strip() for p in stem.replace("-", "_").split("_") if p.strip()]
         
-        # Check for date in filename (e.g. YYYY-MM-DD or YYYYMMDD)
-        date_match = re.search(r'(\d{4}[-_]\d{2}[-_]\d{2})', uploaded_file.name)
+        # 1. Check for ISO Date pattern anywhere in filename (YYYY-MM-DD or YYYYMMDD)
+        date_match = re.search(r'(\d{4}[-_]\d{2}[-_]\d{2})', stem)
+        clean_stem = stem
         if date_match:
             try:
                 auto_date = datetime.date.fromisoformat(date_match.group(1).replace("_", "-"))
+                clean_stem = stem.replace(date_match.group(0), "").strip("_- ")
             except ValueError:
                 pass
+
+        # 2. Extract Course and Topic based on common academic separators (|, --, _, -)
+        if "|" in clean_stem:
+            parts = [p.strip() for p in clean_stem.split("|") if p.strip()]
+        elif "--" in clean_stem:
+            parts = [p.strip() for p in clean_stem.split("--") if p.strip()]
+        elif "_" in clean_stem:
+            parts = [p.strip() for p in clean_stem.split("_") if p.strip()]
+        elif "-" in clean_stem:
+            parts = [p.strip() for p in clean_stem.split("-") if p.strip()]
+        else:
+            parts = [clean_stem]
 
         if not auto_course:
             auto_course = parts[0] if parts else "General"
         if not auto_topic:
-            auto_topic = " ".join(parts[1:]) if len(parts) > 1 else stem
+            auto_topic = " ".join(parts[1:]) if len(parts) > 1 else (parts[0] if parts else stem)
 
-    is_btn_disabled = (uploaded_file is None or not (auto_course or up_course) or not (auto_topic or up_topic))
+    is_btn_disabled = (uploaded_file is None)
 
     if st.button("Process & Generate Structured Notes", type="primary", disabled=is_btn_disabled):
         final_course = up_course.strip() if up_course.strip() else auto_course
