@@ -157,7 +157,7 @@ def cleanup_old_temp_files(hours_threshold: int = 48):
 
 def send_startup_deployment_notification():
     """Sends a Telegram notification to the owner whenever a new deployment boots up (runs in background with retries)."""
-    time.sleep(12)  # Allow container network & DNS to warm up
+    time.sleep(22)  # Allow container network namespace & DNS routing to fully stabilize
     token = os.environ.get("TELEGRAM_BOT_TOKEN")
     allowed_ids = [uid.strip() for uid in os.environ.get("ALLOWED_TELEGRAM_USER_IDS", "").split(",") if uid.strip().isdigit()]
     
@@ -197,7 +197,7 @@ def send_startup_deployment_notification():
 
     async def _send_all():
         for uid in target_users:
-            for attempt in range(1, 4):
+            for attempt in range(1, 5):
                 try:
                     await bot_builder.send_message(
                         chat_id=int(uid),
@@ -209,7 +209,7 @@ def send_startup_deployment_notification():
                     break
                 except Exception as e:
                     print(f"[!] Deployment notification attempt {attempt} for {uid}: {e}")
-                    await asyncio.sleep(5)
+                    await asyncio.sleep(8 * attempt)
 
     try:
         asyncio.run(_send_all())
