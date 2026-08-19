@@ -14,8 +14,9 @@ app_port: 7860
 **Production-ready, local-first & cloud-deployable AI study copilot for graduate-level STEM coursework.**
 
 [![Python](https://img.shields.io/badge/Python-3.11%2B%20%7C%203.12-blue?logo=python&logoColor=white)](https://www.python.org/)
-[![Google Gemini](https://img.shields.io/badge/Google%20GenAI-Gemini%20Flash-orange?logo=google&logoColor=white)](https://ai.google.dev/)
-[![Streamlit](https://img.shields.io/badge/Web%20UI-Streamlit-red?logo=streamlit&logoColor=white)](https://streamlit.io/)
+[![Google Gemini](https://img.shields.io/badge/Google%20GenAI-Gemini%203.7%20Flash-orange?logo=google&logoColor=white)](https://ai.google.dev/)
+[![React](https://img.shields.io/badge/Web%20UI-React%20SPA%20%2B%20Vite-blue?logo=react&logoColor=white)](https://react.dev/)
+[![FastAPI](https://img.shields.io/badge/API-FastAPI-emerald?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
 [![Telegram](https://img.shields.io/badge/Chat%20Bot-Telegram-blue?logo=telegram&logoColor=white)](https://telegram.org/)
 [![Obsidian](https://img.shields.io/badge/Vault-Obsidian%20Sync-purple?logo=obsidian&logoColor=white)](https://obsidian.md/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
@@ -24,64 +25,70 @@ app_port: 7860
 
 ---
 
-## 📌 Overview
+## 📌 System Architecture & Data Flow
 
-The **Autonomous Academic Lecture Assistant** automates the entire lifecycle of lecture ingestion, transcription, structured academic synthesis, LaTeX mathematical derivation, exam preparation, and cross-device synchronization:
+The **Autonomous Academic Lecture Assistant** provides an end-to-end multi-cloud pipeline that automates lecture ingestion, SOTA AI synthesis, KaTeX mathematical derivation, 3D Anki flashcards, vector search, and bidirectional Obsidian vault synchronization:
 
 ```text
-               ┌──────────────────────────────────────────────┐
-               │    Audio Recording / PDF / Slides / Word     │
-               └──────────────────────┬───────────────────────┘
-                                      │
-           ┌──────────────────────────┼──────────────────────────┐
-           ▼                          ▼                          ▼
-┌─────────────────────┐    ┌─────────────────────┐    ┌─────────────────────┐
-│ 📁 ./incoming_audio │    │ 🤖 Telegram Bot     │    │ 💻 Streamlit Web UI │
-│ (Watcher Daemon)    │    │ (@note_taker_bot)   │    │ (Direct Upload)     │
-└──────────┬──────────┘    └──────────┬──────────┘    └──────────┬──────────┘
-           │                          │                          │
-           └──────────────────────────┼──────────────────────────┘
-                                      ▼
-                      ┌──────────────────────────────┐
-                      │    Gemini Flash Engine       │
-                      │ (Auto-fallback Architecture) │
-                      └──────────────┬───────────────┘
-                                     │ Generates structured Markdown & LaTeX
-                                     ▼
-                      ┌──────────────────────────────┐
-                      │   📚 Obsidian Vault Vault    │
-                      │      (./lectures/*.md)       │
-                      └──────────────┬───────────────┘
-                                     │
-           ┌─────────────────────────┴─────────────────────────┐
-           ▼                                                   ▼
-┌─────────────────────────────┐             ┌─────────────────────────────────────┐
-│    Obsidian on Your Mac     │             │        GitHub Vault Repository      │
-│  (Auto-sync via Git Engine) │             │  (my-obsidian-notes.git)            │
-└─────────────────────────────┘             └─────────────────────────────────────┘
+                                  📱 USER TOUCHPOINTS
+                ┌───────────────────────────┴───────────────────────────┐
+                ▼                                                       ▼
+      [ Telegram App Mobile ]                                  [ React + Vite SPA Web Hub ]
+     (@abaja_note_taker_bot)                                   (abaja-notes-taker.hf.space)
+                │                                                       │
+                │ 1. Voice Note / PDF / /recap                          │ 2. Direct Ingestion / Chat
+                ▼                                                       ▼
+   ┌───────────────────────────────┐                       ┌───────────────────────────────┐
+   │ ⚡ RENDER STREAMING PROXY     │                       │ 🐳 HUGGING FACE CENTRAL HUB   │
+   │ (proxy_server.py on port 10k) │───[ Binary Stream ]──▶│ (main.py + server:app on 7860)│
+   └───────────────────────────────┘                       └───────────────┬───────────────┘
+                                                                           │
+                                              ┌────────────────────────────┼────────────────────────────┐
+                                              ▼                            ▼                            ▼
+                                  ┌───────────────────────┐   ┌───────────────────────┐   ┌───────────────────────┐
+                                  │ 🧠 SOTA Gemini 3.7    │   │ 🗄️ SQLite Database    │   │ 🧠 ChromaDB Vector DB │
+                                  │ Flash Ingestion Engine│   │ (metadata.db @ /data) │   │ (Semantic RAG Search) │
+                                  └───────────┬───────────┘   └───────────────────────┘   └───────────────────────┘
+                                              │
+                                              ▼
+                                  ┌───────────────────────┐
+                                  │ 📚 Obsidian Markdown  │
+                                  │ (LaTeX + Mermaid MOC) │
+                                  └───────────┬───────────┘
+                                              │
+                                              ▼
+                                  ┌───────────────────────┐
+                                  │ 🐙 Obsidian Git Sync  │──▶ [ GitHub Repository: my-obsidian-notes ]
+                                  │ (git_sync.py engine)  │
+                                  └───────────────────────┘
 ```
 
 ---
 
-## ✨ Key Features
+## ✨ Key Features & Capabilities
 
-- **Multi-Format Ingestion**: Supports `.m4a`, `.mp3`, `.wav`, `.aac`, `.ogg`, `.flac`, `.pdf`, `.docx`, `.doc`, `.pptx`, `.ppt`, `.txt`, `.md`, and **Live Browser Mic**.
-- **Tiered Model Routing**: Routes audio and dense math proofs to `gemini-3.6-flash` and typed slides/docs to ultra-fast `gemini-3.1-flash-lite`.
-- **Obsidian Native Integration**: Automatically attaches YAML frontmatter, `[[Wikilinks]]`, `#course/...` tags, and `> [!WARNING]` callouts.
-- **Obsidian Maps of Content (MOC)**: Auto-compiles chronological syllabus tables, master theorem indexes, and exam pitfalls.
-- **Anki Flashcard Deck Exporter**: Auto-compiles native `.apkg` flashcard decks for spaced repetition.
-- **Semester-Wide ChromaDB Vector Search**: Semantic RAG queries across all past course notes and proofs.
-- **Automated Git Sync Engine**: Commits and pushes notes to your remote GitHub vault automatically.
-- **Streamlit Web Dashboard**:
-  - Live in-browser microphone recording.
-  - Multi-subject daily briefings.
-  - Date-filtered syllabus exam tutor & semester semantic search.
-- **Asynchronous Telegram Bot**:
-  - Send audio/PDFs on-the-go.
-  - Interactive `/menu` button interface.
-  - Export Anki decks directly to mobile via `/anki`.
-  - Semantic vector search via `/search`.
-  - High-res LaTeX math image rendering via `/latex`.
+- **🎙️ Multi-Format Ingestion**:
+  - Ingests `.mp3`, `.m4a`, `.wav`, `.aac`, `.ogg`, `.flac`, `.pdf`, `.docx`, `.pptx`, `.txt`, and `.md`.
+  - **In-Browser Audio Recording**: Features a live microphone recorder with audio playback, scrubbing, waveform inspection, and direct `.wav` download prior to AI processing.
+- **🧠 SOTA Gemini 3.7 Flash Reasoning**:
+  - Automatically structures messy recordings into rigorous Markdown with full KaTeX math derivations (`\begin{aligned} ... \end{aligned}`), Mermaid DAG mind maps, and `> [!WARNING]` professor exam pitfall callouts.
+  - Multi-tier automatic fallback across active Flash models (`gemini-3.7-flash` $\rightarrow$ `gemini-3.6-flash` $\rightarrow$ `gemini-3.5-flash` $\rightarrow$ `gemini-3.1-flash-lite`).
+- **📅 Academic Intelligence Briefing**:
+  - **3-Way Scope Switch**:
+    - 📅 **By Date**: Daily multi-subject executive summaries connecting themes across all classes.
+    - 📚 **By Course**: Semester-wide progression milestones and governing formula tables.
+    - 🎯 **By Topic**: Exhaustive topic deep dives with failure modes and 5-question active recall tests.
+  - **🌙 Automated Evening Telegram Push**: Background scheduler daemon pushes daily study briefings to your Telegram bot at your customized local time (synced across browser timezones).
+- **📇 3D Interactive Flashcards & Anki Deck Compiler**:
+  - Review conceptual check questions with smooth 3D flip card animations in the browser.
+  - Export native `.apkg` decks on-demand via the web hub or via `/anki <Course>` on Telegram.
+- **💬 Exam Tutor & Chat with Chronological History**:
+  - Multi-turn conversational study copilot with date-range filters and full context grounding.
+  - Past sessions grouped by thread with search and resume capability.
+- **⚡ Full-Duplex Render Streaming Proxy**:
+  - Render acts as an unrestricted 24/7 binary streaming gateway (`proxy_server.py`), streaming Telegram updates and large files to Hugging Face with zero disk footprint.
+- **🔒 API Key Protection (`INGEST_API_KEY`)**:
+  - Smart origin detection allows friction-free web uploads while securing programmatic `curl` and Python API calls with `X-API-Key`.
 
 ---
 
@@ -89,89 +96,66 @@ The **Autonomous Academic Lecture Assistant** automates the entire lifecycle of 
 
 ```text
 .
-├── .github/workflows/         # CI/CD auto-sync workflow for Hugging Face Spaces
-├── .env.example               # Environment variables configuration template
-├── .gitignore                 # Standard Python, Obsidian, and IDE ignore rules
-├── Dockerfile                 # Container image specification (UID 1000, Port 7860)
-├── LICENSE                    # MIT License
-├── README.md                  # Project documentation with HF Spaces metadata
-├── anki_exporter.py           # Anki .apkg deck generation engine
-├── app.py                     # Streamlit web dashboard with mic & password gate
+├── .github/workflows/
+│   └── deploy-render.yml      # Automated Render deployment webhook on git push
+├── frontend/                  # React 18 + Vite + Tailwind CSS + Lucide Web SPA
+│   ├── src/
+│   │   ├── App.tsx            # Main Web Hub SPA (Ingestion, Chat, Search, Anki, Briefing)
+│   │   └── main.tsx           # React entrypoint
+│   └── package.json           # Frontend dependencies & build scripts
+├── anki_exporter.py           # Native Anki .apkg flashcard deck compiler
 ├── audio_optimizer.py         # 32kbps mono AAC audio compressor
-├── bot.py                     # Telegram bot service
-├── core_engine.py             # Shared reasoning, date filtering, and LaTeX repair
-├── docker-compose.yml         # Container orchestration configuration
-├── git_sync.py                # Automated Git synchronization engine
-├── incoming_audio/            # Watched folder for recordings/documents
-├── ingest_audio.py            # Universal audio and document ingestion pipeline
-├── lectures/                  # Generated structured Markdown study notes
-├── main.py                    # Unified launcher with startup vault hydration & GC
-├── metadata_db.py             # Offline SQLite metadata database
-├── requirements.txt           # Pinned project dependencies
-├── vector_store.py            # ChromaDB vector store & semantic search
-└── watcher.py                 # File system watcher daemon
+├── bot.py                     # Telegram Bot poller with Markdown & LaTeX rendering
+├── cheatsheet_generator.py    # Master formula reference sheet generator
+├── core_engine.py             # Multi-scope briefings, syllabus RAG & Gemini 3.7 router
+├── git_sync.py                # Obsidian GitHub repository auto-sync engine
+├── ingest_audio.py            # Universal multi-modal audio & document ingestion pipeline
+├── main.py                    # Process supervisor, keepalive daemon & evening scheduler
+├── metadata_db.py             # SQLite WAL-mode metadata, chat history & settings store
+├── proxy_server.py            # High-performance FastAPI Telegram streaming proxy (Render)
+├── render.yaml                # Infrastructure-as-code specification for Render
+├── server.py                  # High-performance FastAPI REST API & static file hub
+├── vector_store.py            # ChromaDB vector database & semantic similarity search
+├── requirements.txt           # Pinned Python dependencies
+└── Dockerfile                 # Hugging Face Spaces production Docker container
 ```
 
 ---
 
-## 🛠️ Quick Start (Local Setup)
+## 🛠️ Direct API Ingestion Usage
 
-### 1. Clone & Setup Virtual Environment
-
-```bash
-git clone https://github.com/AkhilBaja3005/notes-taker.git
-cd notes-taker
-
-python3 -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
-```
-
-### 2. Configure `.env`
-
-Copy `.env.example` to `.env` and fill in your credentials:
+You can upload lecture files directly to your cloud hub via `cURL` or Python:
 
 ```bash
-cp .env.example .env
-```
-
-```env
-GEMINI_API_KEY=your_gemini_api_key_here
-AUDIO_MODEL=gemini-3.6-flash
-DOC_MODEL=gemini-3.1-flash-lite
-TELEGRAM_BOT_TOKEN=your_telegram_bot_token_here
-ALLOWED_TELEGRAM_USER_IDS=
-WATCH_DIR=./incoming_audio
-LECTURES_DIR=./lectures
-
-# Obsidian Git Sync Configuration
-ENABLE_GIT_SYNC=true
-GIT_VAULT_REPO_URL=https://<GITHUB_PAT>@github.com/yourusername/my-obsidian-notes.git
-GIT_BRANCH=main
-STREAMLIT_PASSWORD=
-```
-
-### 3. Launch All Services
-
-```bash
-python main.py
+curl -X POST "https://abaja-notes-taker.hf.space/api/upload" \
+  -H "X-API-Key: acad_UXLwTKdM3IaDGCeHYiu7dA5nuduOrpWdEsNQnwDXIp4" \
+  -F "file=@/path/to/lecture.pdf" \
+  -F "course_name=Machine Learning" \
+  -F "topic_name=Backpropagation" \
+  -F "lecture_date=2026-08-19" \
+  -F "model=gemini-3.7-flash" \
+  -F "is_dense_math=true"
 ```
 
 ---
 
-## 🤗 Hugging Face Spaces Deployment
+## 🤖 Telegram Bot Commands (`@abaja_note_taker_bot`)
 
-Space URL: **[https://huggingface.co/spaces/abaja/notes-taker](https://huggingface.co/spaces/abaja/notes-taker)**
-
-In your Hugging Face Space settings, add the following secrets:
-- `GEMINI_API_KEY`: Your Gemini API Key
-- `TELEGRAM_BOT_TOKEN`: Your Telegram Bot Token (from @BotFather)
-- `GIT_VAULT_REPO_URL`: `https://<GITHUB_PAT>@github.com/yourusername/my-obsidian-notes.git`
-- `ENABLE_GIT_SYNC`: `true`
-- `STREAMLIT_PASSWORD`: (Optional password gate)
+| Command | Description |
+| :--- | :--- |
+| **`/start`** | Welcome directory and system capabilities overview. |
+| **`/menu`** | Interactive control panel with quick action buttons. |
+| **`/help`** | Complete command syntax reference guide. |
+| **`/recap`** | Generate today's multi-subject briefing (or `/recap <Course>` / `/recap <Topic>`). |
+| **`/cheatsheet <Course>`** | Synthesize 1-page master formula reference sheet. |
+| **`/anki <Course>`** | Compile and download spaced repetition `.apkg` flashcard deck. |
+| **`/search <Query>`** | Semester-wide semantic vector search across all notes. |
+| **`/latex <Equation>`** | Render mathematical formulas as crisp high-resolution dark-mode images. |
+| **`/status`** | System health, indexed courses, active model, and Obsidian sync state. |
 
 ---
 
 ## 📄 License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
