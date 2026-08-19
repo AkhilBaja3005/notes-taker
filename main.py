@@ -7,10 +7,13 @@ import threading
 import urllib.request
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
+from dotenv import load_dotenv
 from git_sync import sync_notes_to_git
 from metadata_db import index_all_lectures
 from vector_store import index_all_lectures_vector_db
 from obsidian_moc import update_all_course_mocs
+
+load_dotenv()
 
 # Process registry for self-healing supervisor: {name: (process_obj, command_list)}
 process_registry = {}
@@ -152,8 +155,9 @@ def cleanup_old_temp_files(hours_threshold: int = 48):
         print(f"[+] Garbage Collector: Cleaned {cleaned} temporary files older than {hours_threshold}h.")
 
 def start_service(name: str, cmd: list) -> subprocess.Popen:
-    """Spawns a managed process and registers it for self-healing supervision."""
-    proc = subprocess.Popen(cmd, stdout=sys.stdout, stderr=sys.stderr)
+    """Spawns a managed process with explicit environment inheritance and registers it for self-healing supervision."""
+    env_vars = os.environ.copy()
+    proc = subprocess.Popen(cmd, stdout=sys.stdout, stderr=sys.stderr, env=env_vars)
     process_registry[name] = (proc, cmd)
     return proc
 
