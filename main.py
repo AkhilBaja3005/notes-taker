@@ -154,6 +154,44 @@ def cleanup_old_temp_files(hours_threshold: int = 48):
     if cleaned > 0:
         print(f"[+] Garbage Collector: Cleaned {cleaned} temporary files older than {hours_threshold}h.")
 
+def send_startup_deployment_notification():
+    """Sends a Telegram notification to the owner whenever a new deployment boots up."""
+    token = os.environ.get("TELEGRAM_BOT_TOKEN")
+    allowed_ids = [uid.strip() for uid in os.environ.get("ALLOWED_TELEGRAM_USER_IDS", "").split(",") if uid.strip().isdigit()]
+    
+    # Fallback to known owner ID if ALLOWED_TELEGRAM_USER_IDS is empty
+    target_users = allowed_ids if allowed_ids else ["8327334588"]
+
+    if not token or not target_users:
+        return
+
+    import json
+    boot_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    msg_text = (
+        f"🚀 *New Deployment Detected & Online!*\n\n"
+        f"• **Status**: `All Services Operational`\n"
+        f"• **Boot Time**: `{boot_time}`\n"
+        f"• **Active Engine**: `{os.environ.get('GEMINI_MODEL', 'gemini-3.6-flash')}`\n"
+        f"• **Storage**: `Persistent /data Bucket Active`\n"
+        f"• **Dashboard**: [abaja-notes-taker.hf.space](https://abaja-notes-taker.hf.space)\n\n"
+        f"💬 Send `/menu` or ask any question to begin!"
+    )
+
+    for uid in target_users:
+        try:
+            url = f"https://api.telegram.org/bot{token}/sendMessage"
+            payload = json.dumps({
+                "chat_id": uid,
+                "text": msg_text,
+                "parse_mode": "Markdown",
+                "disable_web_page_preview": True
+            }).encode("utf-8")
+            req = urllib.request.Request(url, data=payload, headers={"Content-Type": "application/json"})
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                print(f"[+] Startup deployment notification sent to Telegram user {uid}!")
+        except Exception as e:
+            print(f"[!] Deployment notification notice for {uid}: {e}")
+
 def start_service(name: str, cmd: list) -> subprocess.Popen:
     """Spawns a managed process with explicit environment inheritance and registers it for self-healing supervision."""
     env_vars = os.environ.copy()
@@ -199,6 +237,9 @@ def main():
         "--server.address", "0.0.0.0",
         "--server.headless", "true"
     ])
+
+    # 6. Send Proactive Telegram Deployment Notification
+    send_startup_deployment_notification()
 
     print("\n[+] All services started successfully with Self-Healing Supervisor active!")
     print("[+] Press Ctrl+C at any time to gracefully terminate all services.\n")
