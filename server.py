@@ -50,6 +50,51 @@ def verify_api_key(
         )
     return True
 
+def notify_telegram_upload_complete(file_name: str, course_name: str, topic_name: str, note_path: str, model_used: str):
+    """Dispatches a formatted confirmation message to the owner's Telegram bot whenever a file is ingested."""
+    token = os.environ.get("TELEGRAM_BOT_TOKEN")
+    if not token:
+        return
+    
+    allowed_ids = [int(uid.strip()) for uid in os.environ.get("ALLOWED_TELEGRAM_USER_IDS", "").split(",") if uid.strip().isdigit()]
+    target_users = allowed_ids if allowed_ids else [8327334588]
+    
+    proxy_base_url = os.environ.get("TELEGRAM_API_BASE_URL", "").strip().rstrip("/")
+    if not proxy_base_url:
+        proxy_base_url = "https://notes-taker-uq8f.onrender.com"
+
+    api_url = f"{proxy_base_url}/bot{token}/sendMessage"
+    
+    text = (
+        f"✅ *Lecture Ingestion Complete!*\n\n"
+        f"• 📚 *Course*: `{course_name}`\n"
+        f"• 🎯 *Topic*: `{topic_name}`\n"
+        f"• 📁 *Source*: `{file_name}`\n"
+        f"• 🧠 *Model*: `{model_used}`\n"
+        f"• 📝 *Obsidian Note*: `{Path(note_path).name}`\n\n"
+        f"🔗 Synced to GitHub & Indexed in Vector Store."
+    )
+    
+    import urllib.request
+    for uid in target_users:
+        try:
+            payload = json.dumps({
+                "chat_id": uid,
+                "text": text,
+                "parse_mode": "Markdown",
+                "disable_web_page_preview": True
+            }).encode("utf-8")
+            req = urllib.request.Request(
+                api_url,
+                data=payload,
+                headers={"Content-Type": "application/json", "Connection": "close"},
+                method="POST"
+            )
+            with urllib.request.urlopen(req, timeout=15) as resp:
+                pass
+        except Exception as e:
+            print(f"[!] Telegram upload notification error: {e}")
+
 from core_engine import (
     get_available_courses,
     generate_daily_recap,
@@ -232,6 +277,17 @@ async def upload_lecture_material(
             lecture_date=l_date,
             model=model,
             is_dense_math=is_dense_math
+        )
+        # Asynchronously dispatch proactive Telegram confirmation
+        asyncio.create_task(
+            asyncio.to_thread(
+                notify_telegram_upload_complete,
+                file_name=file.filename,
+                course_name=c_name,
+                topic_name=t_name,
+                note_path=str(out_note),
+                model_used=model
+            )
         )
         return {
             "status": "success",
