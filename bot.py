@@ -511,7 +511,30 @@ async def process_telegram_webhook(update_dict: dict):
     update = Update.de_json(update_dict, _global_app.bot)
     await _global_app.process_update(update)
 
+def run_dummy_health_server(port: int = 10000):
+    """Listens on $PORT so Render free Web Services keep the bot active and pass health checks."""
+    import http.server
+    import socketserver
+    class Handler(http.server.SimpleHTTPRequestHandler):
+        def do_GET(self):
+            self.send_response(200)
+            self.send_header("Content-type", "text/plain")
+            self.end_headers()
+            self.wfile.write(b"Telegram Bot Poller Active")
+        def log_message(self, format, *args):
+            return
+
+    try:
+        with socketserver.TCPServer(("", port), Handler) as httpd:
+            httpd.serve_forever()
+    except Exception as e:
+        print(f"[!] Health server note: {e}")
+
 def main():
+    import threading
+    render_port = int(os.environ.get("PORT", "10000"))
+    threading.Thread(target=run_dummy_health_server, args=(render_port,), daemon=True).start()
+
     app = build_bot_app()
     if not app:
         print("[!] TELEGRAM_BOT_TOKEN not configured.")

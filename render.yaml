@@ -1,6 +1,6 @@
 services:
-  # Free Background Worker for Telegram Bot (Direct Unrestricted TCP Polling)
-  - type: worker
+  # 100% Free Web Service for Telegram Bot on Render
+  - type: web
     name: notes-telegram-bot
     runtime: python
     region: oregon
