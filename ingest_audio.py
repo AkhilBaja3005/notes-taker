@@ -60,7 +60,7 @@ def process_file(file_path_str: str, course_name: str, topic_name: str, lecture_
     suffix = file_path.suffix.lower()
     is_audio = suffix in SUPPORTED_AUDIO_EXTS
 
-    # 1. Automatic Audio Pre-Optimization (32kbps AAC conversion)
+    # 1. Automatic Audio Pre-Optimization
     actual_upload_path = file_path
     if is_audio:
         try:
@@ -78,7 +78,6 @@ def process_file(file_path_str: str, course_name: str, topic_name: str, lecture_
         selected_model = model
         fallback_pool = AUDIO_FALLBACKS if is_audio else DOC_FALLBACKS
 
-    # Domain vocabulary & international accent priming prompt (Optimization A)
     prompt = f"""
     You are an expert academic tutor for a graduate-level STEM curriculum.
     Analyze the provided {content_type_label} for:
@@ -89,12 +88,20 @@ def process_file(file_path_str: str, course_name: str, topic_name: str, lecture_
     - Normalize diverse international accents and room reverberation.
     - Accurately identify technical domain terminology, Greek notations, and vector calculus proofs without phonetic hallucination.
 
-    Generate your response in standard Markdown (compatible with Obsidian math & callouts) using EXACTLY the following structure:
+    Generate your response in standard Markdown (compatible with Obsidian math, Mermaid diagrams & callouts) using EXACTLY the following structure:
     
     # {course_name}: {topic_name}
     
-    ## 1. Executive Summary
+    ## 1. Executive Summary & Conceptual Mind Map
     - 3 to 5 concise bullet points capturing the core conceptual thesis.
+    
+    ```mermaid
+    graph TD
+        A[{topic_name}] --> B[Core Concept 1]
+        A --> C[Core Concept 2]
+        B --> D[Theorem / Result]
+        C --> E[Application / Metric]
+    ```
     
     ## 2. Mathematical Definitions, Derivations & Proofs
     - Render every equation, variable, and proof in clean standard LaTeX ($...$ for inline, $$...$$ for display).
@@ -106,7 +113,7 @@ def process_file(file_path_str: str, course_name: str, topic_name: str, lecture_
     > - Highlight direct warnings, potential exam questions, and common conceptual traps.
     
     ## 4. Key Concept Q&A Flashcards
-    - 5 to 8 rigorous conceptual check questions in Question/Answer format.
+    - 5 to 8 rigorous conceptual check questions in Question/Answer format (e.g. **Q1: Question?** and **A1:** Answer).
     
     ## 5. Chronological / Sectional Breakdown
     - A detailed, readable breakdown with timestamps [HH:MM:SS] (for audio) or Section/Slide references (for documents).
@@ -181,13 +188,9 @@ tags:
     
     # 2. Automated Pipeline Extensions
     try:
-        # a. Auto-generate Anki deck for this note
         generate_anki_deck_from_file(output_filename)
-        # b. Update Obsidian Course Map of Content (MOC)
         update_all_course_mocs(LECTURES_DIR)
-        # c. Index note in SQLite Metadata Cache
         index_lecture_file(output_filename)
-        # d. Index note in ChromaDB Vector Database
         index_file_in_vector_db(output_filename)
     except Exception as e:
         print(f"[!] Warning: Pipeline extension index notice: {e}")

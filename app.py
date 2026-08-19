@@ -11,9 +11,11 @@ from core_engine import (
     DEFAULT_MODEL
 )
 from ingest_audio import process_file
-from anki_exporter import generate_anki_deck_for_course, generate_anki_deck_from_file
+from anki_exporter import generate_anki_deck_for_course, parse_flashcards_from_markdown
 from vector_store import semantic_search_notes
 from metadata_db import query_courses
+from cheatsheet_generator import generate_course_cheatsheet
+import frontmatter
 
 st.set_page_config(page_title="Academic Lecture & Notes Hub", page_icon="🎓", layout="wide")
 
@@ -62,12 +64,13 @@ with st.sidebar:
     )
     active_model = None if selected_model_choice == "Auto (Workload-Aware)" else selected_model_choice
 
-tab_upload, tab_recap, tab_exam, tab_search, tab_anki = st.tabs([
-    "📤 Ingestion & Live Mic", 
+tab_upload, tab_recap, tab_exam, tab_cheatsheet, tab_search, tab_anki = st.tabs([
+    "📤 Ingestion & Mic", 
     "📅 Daily Recap", 
     "🎯 Exam Prep", 
+    "📋 Cheatsheet Generator",
     "🔍 Semester Search", 
-    "📇 Anki Decks"
+    "📇 Flashcards & Anki"
 ])
 
 with tab_upload:
@@ -95,7 +98,7 @@ with tab_upload:
     if audio_bytes:
         st.audio(audio_bytes, format="audio/wav")
         if st.button("Process Live Recording", type="primary", disabled=(not up_course or not up_topic)):
-            with st.spinner("Processing live lecture recording..."):
+            with st.spinner("Processing live lecture recording with Mermaid diagram synthesis..."):
                 incoming_dir = Path("./incoming_audio")
                 incoming_dir.mkdir(parents=True, exist_ok=True)
                 rec_filename = f"live_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.wav"
@@ -111,7 +114,7 @@ with tab_upload:
                         model=active_model,
                         is_dense_math=is_dense_math
                     )
-                    st.success(f"✅ Notes successfully generated from live mic!")
+                    st.success(f"✅ Notes & Mermaid diagram successfully generated from live mic!")
                     st.markdown(out_path.read_text(encoding="utf-8"))
                 except Exception as e:
                     st.error(f"Error: {e}")
@@ -124,7 +127,7 @@ with tab_upload:
     )
 
     if st.button("Process & Generate Structured Notes", type="primary", disabled=(uploaded_file is None or not up_course or not up_topic)):
-        with st.spinner(f"Analyzing material with optimal Gemini tier..."):
+        with st.spinner(f"Analyzing material with optimal Gemini tier & generating mind map..."):
             incoming_dir = Path("./incoming_audio")
             incoming_dir.mkdir(parents=True, exist_ok=True)
             save_path = incoming_dir / uploaded_file.name
@@ -187,13 +190,41 @@ with tab_exam:
                 st.markdown(user_prompt)
 
             with st.chat_message("assistant"):
-                with st.spinner("Analyzing lecture syllabus..."):
+                with st.spinner("Analyzing lecture syllabus with Gemini context caching..."):
                     try:
                         reply = query_exam_syllabus(course, start_date, end_date, user_prompt, model=active_model)
                         st.markdown(reply)
                         st.session_state.messages.append({"role": "assistant", "content": reply})
                     except Exception as e:
                         st.error(f"Error during query: {e}")
+
+with tab_cheatsheet:
+    st.subheader("📋 1-Click Master Exam Cheatsheet & Formula Reference")
+    courses = query_courses() or get_available_courses()
+    if not courses:
+        st.info("No courses available.")
+    else:
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            cs_course = st.selectbox("Select Course for Cheatsheet", courses, key="cs_course")
+        with c2:
+            cs_start = st.date_input("Start Date", datetime.date.today() - datetime.timedelta(days=90), key="cs_start")
+        with c3:
+            cs_end = st.date_input("End Date", datetime.date.today(), key="cs_end")
+
+        if st.button("Generate Master Exam Cheatsheet", type="primary"):
+            with st.spinner(f"Synthesizing high-yield formula sheet for {cs_course}..."):
+                try:
+                    sheet_md = generate_course_cheatsheet(cs_course, cs_start, cs_end, model=active_model)
+                    st.markdown(sheet_md)
+                    st.download_button(
+                        label=f"⬇️ Download {cs_course} Cheatsheet (.md)",
+                        data=sheet_md,
+                        file_name=f"{cs_course.replace(' ', '_')}_Exam_Cheatsheet.md",
+                        mime="text/markdown"
+                    )
+                except Exception as e:
+                    st.error(f"Error generating cheatsheet: {e}")
 
 with tab_search:
     st.subheader("🧠 Semester-Wide Semantic Vector Search (Hybrid RAG)")
@@ -212,24 +243,103 @@ with tab_search:
                         st.markdown(r["content"])
 
 with tab_anki:
-    st.subheader("📇 Spaced Repetition Anki Decks (.apkg)")
+    st.subheader("📇 Interactive Flashcard Flip Reviewer & Anki Exporter")
     available_courses = query_courses() or get_available_courses()
     
     if not available_courses:
-        st.info("No courses available to generate Anki decks yet.")
+        st.info("No courses available.")
     else:
-        sel_course = st.selectbox("Select Course for Complete Deck", available_courses, key="anki_sel")
-        if st.button("Generate Complete Course Anki Deck (.apkg)", type="primary"):
-            with st.spinner(f"Compiling flashcards for {sel_course}..."):
-                deck_path = generate_anki_deck_for_course(Path("./lectures"), sel_course)
-                if deck_path and deck_path.exists():
-                    st.success(f"✅ Anki deck `{deck_path.name}` generated!")
-                    with open(deck_path, "rb") as f:
-                        st.download_button(
-                            label=f"⬇️ Download {sel_course} Anki Deck (.apkg)",
-                            data=f,
-                            file_name=deck_path.name,
-                            mime="application/octet-stream"
-                        )
-                else:
-                    st.warning("No flashcards found for this course.")
+        sel_course = st.selectbox("Select Course", available_courses, key="anki_sel")
+        
+        # Collect all flashcards for this course
+        course_cards = []
+        lectures_dir = Path("./lectures")
+        for file_path in sorted(lectures_dir.glob("*.md")):
+            if file_path.name.endswith("_MOC.md"):
+                continue
+            try:
+                post = frontmatter.load(file_path)
+                c_name = str(post.get("course", "")).replace("[[", "").replace("]]", "").strip()
+                if c_name.lower() == sel_course.lower():
+                    t_name = str(post.get("topic", "")).replace("[[", "").replace("]]", "").strip()
+                    d_str = str(post.get("date", ""))
+                    pairs = parse_flashcards_from_markdown(post.content)
+                    for q, a in pairs:
+                        course_cards.append({"question": q, "answer": a, "topic": t_name, "date": d_str})
+            except Exception:
+                continue
+
+        st.markdown(f"**Total Available Flashcards for {sel_course}:** `{len(course_cards)}`")
+        
+        if course_cards:
+            st.divider()
+            st.markdown("#### 🔄 In-Browser Card Reviewer")
+            
+            if "card_idx" not in st.session_state:
+                st.session_state.card_idx = 0
+            if "show_answer" not in st.session_state:
+                st.session_state.show_answer = False
+
+            # Ensure index within bounds
+            if st.session_state.card_idx >= len(course_cards):
+                st.session_state.card_idx = 0
+
+            cur_card = course_cards[st.session_state.card_idx]
+
+            # Render Question Box
+            st.markdown(
+                f"""
+                <div style="background-color: #1e1e2e; border: 2px solid #89b4fa; border-radius: 12px; padding: 25px; margin-bottom: 15px;">
+                    <div style="color: #89b4fa; font-size: 13px; text-transform: uppercase; font-weight: 600;">
+                        Card {st.session_state.card_idx + 1} of {len(course_cards)} &nbsp;•&nbsp; 🏷️ {cur_card['topic']} ({cur_card['date']})
+                    </div>
+                    <div style="color: #f5e0dc; font-size: 20px; font-weight: 600; margin-top: 10px;">
+                        {cur_card['question']}
+                    </div>
+                </div>
+                """,
+                unsafe_allow_html=True
+            )
+
+            col_flip, col_next, col_prev = st.columns([2, 1, 1])
+            with col_flip:
+                if st.button("💡 " + ("Hide Answer" if st.session_state.show_answer else "Flip Card (Reveal Answer)"), type="primary"):
+                    st.session_state.show_answer = not st.session_state.show_answer
+                    st.rerun()
+            with col_prev:
+                if st.button("⬅️ Previous"):
+                    st.session_state.card_idx = max(0, st.session_state.card_idx - 1)
+                    st.session_state.show_answer = False
+                    st.rerun()
+            with col_next:
+                if st.button("Next ➡️"):
+                    st.session_state.card_idx = (st.session_state.card_idx + 1) % len(course_cards)
+                    st.session_state.show_answer = False
+                    st.rerun()
+
+            if st.session_state.show_answer:
+                st.markdown(
+                    f"""
+                    <div style="background-color: #181825; border: 2px solid #a6e3a1; border-radius: 12px; padding: 25px; margin-top: 15px;">
+                        <div style="color: #a6e3a1; font-size: 14px; font-weight: bold; margin-bottom: 8px;">💡 Answer & Derivation:</div>
+                        <div style="color: #cdd6f4; font-size: 17px; line-height: 1.6;">
+                            {cur_card['answer']}
+                        </div>
+                    </div>
+                    """,
+                    unsafe_allow_html=True
+                )
+
+            st.divider()
+            st.markdown("#### ⬇️ Export to Anki Mobile / Desktop")
+            if st.button("Generate Complete Course Anki Deck (.apkg)"):
+                with st.spinner(f"Compiling flashcards for {sel_course}..."):
+                    deck_path = generate_anki_deck_for_course(Path("./lectures"), sel_course)
+                    if deck_path and deck_path.exists():
+                        with open(deck_path, "rb") as f:
+                            st.download_button(
+                                label=f"⬇️ Download {sel_course} Anki Deck (.apkg)",
+                                data=f,
+                                file_name=deck_path.name,
+                                mime="application/octet-stream"
+                            )

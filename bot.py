@@ -27,6 +27,7 @@ from core_engine import (
 from anki_exporter import generate_anki_deck_for_course
 from vector_store import semantic_search_notes
 from metadata_db import query_courses
+from cheatsheet_generator import generate_course_cheatsheet
 
 load_dotenv()
 
@@ -109,6 +110,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "`Course Name | Topic Name | YYYY-MM-DD`\n\n"
         "⚡ *Commands:*\n"
         "• `/search <query>` - Semantic Vector Search across all notes\n"
+        "• `/cheatsheet <Course>` - Master Exam Formula Sheet\n"
         "• `/anki <course>` - Export complete Anki Flashcard deck (.apkg)\n"
         "• `/recap [YYYY-MM-DD]` - Daily Multi-Subject briefing\n"
         "• `/exam Course | StartDate | EndDate | Question` - Exam Doubt Tutor\n"
@@ -136,13 +138,32 @@ async def search_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply += f"📌 *{r['course']}* - _{r['topic']}_ (`{r['date']}`)\n`{r['section']}`\n{r['content'][:350]}...\n\n---\n\n"
     await send_smart_message(update, reply)
 
+async def cheatsheet_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not check_auth(update.effective_user.id):
+        return
+    course_name = " ".join(context.args)
+    if not course_name:
+        courses = query_courses()
+        c_list = "\n".join([f"• `/cheatsheet {c}`" for c in courses])
+        await update.message.reply_text(f"Please specify a course:\n`/cheatsheet <Course Name>`\n\n*Available:*\n{c_list}", parse_mode="Markdown")
+        return
+
+    await update.message.reply_text(f"📋 Synthesizing master formula sheet for *{course_name}*...", parse_mode="Markdown")
+    try:
+        start_d = datetime.date.today() - datetime.timedelta(days=120)
+        end_d = datetime.date.today()
+        sheet = generate_course_cheatsheet(course_name, start_d, end_d, model=current_bot_model)
+        await send_smart_message(update, sheet)
+    except Exception as e:
+        await update.message.reply_text(f"❌ Error generating cheatsheet: {e}")
+
 async def anki_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not check_auth(update.effective_user.id):
         return
     course_name = " ".join(context.args)
     if not course_name:
         courses = query_courses()
-        c_list = "\n".join([f"• `{c}`" for c in courses])
+        c_list = "\n".join([f"• `/anki {c}`" for c in courses])
         await update.message.reply_text(f"Please specify a course:\n`/anki <Course Name>`\n\n*Available:*\n{c_list}", parse_mode="Markdown")
         return
 
@@ -222,10 +243,13 @@ async def menu_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
         [
             InlineKeyboardButton("📅 Today's Briefing", callback_data="menu_today_recap"),
-            InlineKeyboardButton("📇 Export Anki", callback_data="menu_anki_list")
+            InlineKeyboardButton("📋 Cheatsheet", callback_data="menu_cheatsheet_list")
         ],
         [
-            InlineKeyboardButton("🤖 Switch Model", callback_data="menu_model_select"),
+            InlineKeyboardButton("📇 Export Anki", callback_data="menu_anki_list"),
+            InlineKeyboardButton("🤖 Switch Model", callback_data="menu_model_select")
+        ],
+        [
             InlineKeyboardButton("ℹ️ System Status", callback_data="menu_status")
         ]
     ]
@@ -242,6 +266,10 @@ async def button_callback_handler(update: Update, context: ContextTypes.DEFAULT_
         await query.edit_message_text(f"⏳ Generating daily recap for {today}...")
         recap = generate_daily_recap(today, model=current_bot_model)
         await query.message.reply_text(recap)
+    elif query.data == "menu_cheatsheet_list":
+        courses = query_courses()
+        c_list = "\n".join([f"• `/cheatsheet {c}`" for c in courses])
+        await query.edit_message_text(f"📋 *Select a course to generate master formula sheet:*\n\n{c_list}", parse_mode="Markdown")
     elif query.data == "menu_anki_list":
         courses = query_courses()
         c_list = "\n".join([f"• `/anki {c}`" for c in courses])
@@ -309,7 +337,6 @@ def main():
 
     from telegram.request import HTTPXRequest
 
-    # Generous timeouts for cloud container network latency (Hugging Face Spaces)
     request_client = HTTPXRequest(
         connect_timeout=60.0,
         read_timeout=60.0,
@@ -322,6 +349,7 @@ def main():
     app.add_handler(CommandHandler("menu", menu_command))
     app.add_handler(CommandHandler("recap", recap_command))
     app.add_handler(CommandHandler("exam", exam_command))
+    app.add_handler(CommandHandler("cheatsheet", cheatsheet_command))
     app.add_handler(CommandHandler("search", search_command))
     app.add_handler(CommandHandler("anki", anki_command))
     app.add_handler(CommandHandler("latex", latex_command))
@@ -329,7 +357,6 @@ def main():
     app.add_handler(MessageHandler(filters.ATTACHMENT | filters.VOICE | filters.AUDIO, file_handler))
 
     print("[*] Academic Assistant Telegram Bot running...")
-    # bootstrap_retries=-1 enables infinite retries with exponential backoff on startup network hiccups
     app.run_polling(bootstrap_retries=-1, timeout=30)
 
 if __name__ == "__main__":
