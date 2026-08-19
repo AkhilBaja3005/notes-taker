@@ -1,0 +1,27 @@
+name: Deploy to Render
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    name: Trigger Render Webhook Deploy
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger Render Deploy Hook
+        run: |
+          echo "🚀 Triggering Render deployment webhook..."
+          if [ -n "${{ secrets.RENDER_DEPLOY_HOOK_URL }}" ]; then
+            HTTP_RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" -X POST "${{ secrets.RENDER_DEPLOY_HOOK_URL }}")
+            echo "Render Deploy Hook HTTP Status: $HTTP_RESPONSE"
+            if [ "$HTTP_RESPONSE" -eq 200 ] || [ "$HTTP_RESPONSE" -eq 201 ]; then
+              echo "✅ Render deployment triggered successfully!"
+            else
+              echo "⚠️ Unexpected response: $HTTP_RESPONSE"
+            fi
+          else
+            echo "⚠️ Secret RENDER_DEPLOY_HOOK_URL is not set in GitHub repository secrets. Skipping deploy hook."
+          fi
