@@ -1,0 +1,22 @@
+services:
+  # Free Background Worker for Telegram Bot (Direct Unrestricted TCP Polling)
+  - type: worker
+    name: notes-telegram-bot
+    runtime: python
+    region: oregon
+    plan: free
+    buildCommand: "pip install -r requirements.txt"
+    startCommand: "python bot.py"
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.0
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: ALLOWED_TELEGRAM_USER_IDS
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: HF_BACKEND_URL
+        value: "https://abaja-notes-taker.hf.space"
+      - key: ENABLE_GIT_SYNC
+        value: "false"
