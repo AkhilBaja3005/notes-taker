@@ -330,6 +330,25 @@ async def file_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         await status_msg.edit_text(f"❌ Error processing material: {e}")
 
+async def text_message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not check_auth(update.effective_user.id):
+        return
+    text = update.message.text.strip()
+    if not text:
+        return
+
+    # If user sends a general question or doubt
+    await update.message.reply_text(f"🔍 Searching lecture knowledge base for: *{text}*...", parse_mode="Markdown")
+    results = semantic_search_notes(text, n_results=3)
+    if results:
+        reply = f"🧠 *Vector DB Search Results:*\n\n"
+        for r in results:
+            reply += f"📌 *{r['course']}* - _{r['topic']}_ (`{r['date']}`)\n`{r['section']}`\n{r['content'][:400]}...\n\n---\n\n"
+        await send_smart_message(update, reply)
+    else:
+        # Fallback to menu help
+        await start_command(update, context)
+
 def main():
     if not TELEGRAM_TOKEN:
         print("[!] TELEGRAM_BOT_TOKEN not configured.")
@@ -346,6 +365,7 @@ def main():
 
     app = ApplicationBuilder().token(TELEGRAM_TOKEN).request(request_client).build()
     app.add_handler(CommandHandler("start", start_command))
+    app.add_handler(CommandHandler("help", start_command))
     app.add_handler(CommandHandler("menu", menu_command))
     app.add_handler(CommandHandler("recap", recap_command))
     app.add_handler(CommandHandler("exam", exam_command))
@@ -355,6 +375,7 @@ def main():
     app.add_handler(CommandHandler("latex", latex_command))
     app.add_handler(CallbackQueryHandler(button_callback_handler))
     app.add_handler(MessageHandler(filters.ATTACHMENT | filters.VOICE | filters.AUDIO, file_handler))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, text_message_handler))
 
     print("[*] Academic Assistant Telegram Bot starting polling (dropping stale webhooks/updates)...")
     try:
