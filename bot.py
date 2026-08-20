@@ -644,8 +644,8 @@ def main():
         app.run_polling(
             drop_pending_updates=False,
             bootstrap_retries=-1,
-            timeout=30,
-            poll_interval=1.0,
+            timeout=15,
+            poll_interval=0.5,
             stop_signals=None
         )
     except Exception as e:
