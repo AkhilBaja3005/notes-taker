@@ -50,6 +50,22 @@ def init_vault_git():
         if repo_url:
             run_git_cmd(["git", "remote", "set-url", "origin", repo_url], LECTURES_DIR)
 
+    # Ensure a strict vault-level .gitignore exists inside the Obsidian repo
+    vault_gitignore = LECTURES_DIR / ".gitignore"
+    if not vault_gitignore.exists():
+        vault_gitignore.write_text(
+            "# Obsidian Vault Git Ignore\n"
+            ".DS_Store\n"
+            "*.db\n"
+            "*.sqlite*\n"
+            "vector_db/\n"
+            "incoming_audio/\n"
+            "optimized_audio/\n"
+            "*.bin\n"
+            "*.pyc\n",
+            encoding="utf-8"
+        )
+
 def sync_notes_to_git(commit_message: str = "Add lecture notes [Automated Sync]") -> tuple[bool, str]:
     """Commits and pushes newly created or modified lecture notes to the remote Git repository."""
     if not ENABLE_GIT_SYNC:
