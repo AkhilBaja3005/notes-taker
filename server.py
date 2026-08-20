@@ -283,38 +283,37 @@ async def upload_lecture_material(
         if is_dense_math is None and "is_dense_math" in form:
             dense_math = str(form.get("is_dense_math", "")).lower() in ("true", "1", "yes")
 
-        # Extract file payload
-        for key in ["file", "audio", "document", "data"]:
-            file_obj = form.get(key)
-            if file_obj is not None:
+        # Extract file payload by checking all form keys
+        for key, file_obj in form.items():
+            if key in ("course_name", "topic_name", "lecture_date", "model", "is_dense_math"):
+                continue
+            
+            try:
                 if hasattr(file_obj, "filename") and file_obj.filename:
                     filename = file_obj.filename
                     content = await file_obj.read()
-                    break
                 elif hasattr(file_obj, "read"):
                     filename = f"ios_upload_{int(time.time())}.m4a"
                     content = await file_obj.read()
-                    break
-                elif isinstance(file_obj, bytes):
+                elif isinstance(file_obj, bytes) and len(file_obj) > 0:
                     filename = f"ios_upload_{int(time.time())}.m4a"
                     content = file_obj
+                elif isinstance(file_obj, str) and len(file_obj) > 0:
+                    # Check if it's base64 encoded audio from shortcut
+                    import base64
+                    try:
+                        decoded = base64.b64decode(file_obj)
+                        if len(decoded) > 50:
+                            content = decoded
+                            filename = f"ios_upload_{int(time.time())}.m4a"
+                    except Exception:
+                        content = file_obj.encode("utf-8")
+                        filename = f"ios_upload_{int(time.time())}.txt"
+                
+                if content and len(content) > 0:
                     break
-                elif isinstance(file_obj, str) and len(file_obj) > 20:
-                    filename = f"ios_upload_{int(time.time())}.txt"
-                    content = file_obj.encode("utf-8")
-                    break
-
-        # If still not found, check any other uploaded form file
-        if not content:
-            for k, v in form.items():
-                if hasattr(v, "filename") and v.filename:
-                    filename = v.filename
-                    content = await v.read()
-                    break
-                elif hasattr(v, "read"):
-                    filename = f"ios_upload_{int(time.time())}.m4a"
-                    content = await v.read()
-                    break
+            except Exception as e:
+                print(f"[!] Warning reading form item '{key}': {e}")
     else:
         # Direct raw binary body (e.g. Content-Type: audio/m4a, application/pdf, etc.)
         content = await request.body()
@@ -322,8 +321,9 @@ async def upload_lecture_material(
         filename = f"ios_upload_{int(time.time())}{ext}"
 
     if not content or len(content) == 0:
-        print(f"[!] Upload 422: Content-Type was '{content_type}', but no content was received.")
-        raise HTTPException(status_code=422, detail="No file content or audio stream received.")
+        form_keys = list(form.keys()) if "form" in locals() else []
+        print(f"[!] Upload 422: Content-Type '{content_type}', form keys found: {form_keys}")
+        raise HTTPException(status_code=422, detail="No file content or audio stream received in request payload.")
 
     if not filename:
         filename = f"ios_upload_{int(time.time())}.m4a"
