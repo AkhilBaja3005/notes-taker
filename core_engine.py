@@ -282,48 +282,9 @@ def query_exam_syllabus(course: str, start_date: datetime.date, end_date: dateti
     - CRITICAL: Never emit isolated '\\end{{aligned}}'. Always open with '$$\\begin{{aligned}}' and close with '\\end{{aligned}}$$'.
     """
 
-    cache_key = f"{course}_{start_date}_{end_date}"
-    now = datetime.datetime.now(datetime.timezone.utc)
-    
-    if len(context) > 2000 and (model is None or "flash" in model):
-        try:
-            cached_item = _ACTIVE_SYLLABUS_CACHES.get(cache_key)
-            if cached_item and cached_item["expires_at"] > now:
-                cache_name = cached_item["name"]
-                config = types.GenerateContentConfig(cached_content=cache_name)
-                with contextlib.redirect_stderr(io.StringIO()):
-                    resp = client.models.generate_content(
-                        model=DEFAULT_MODEL,
-                        contents=question,
-                        config=config
-                    )
-                return clean_and_repair_latex(resp.text)
-            else:
-                with contextlib.redirect_stderr(io.StringIO()):
-                    new_cache = client.caches.create(
-                        model=DEFAULT_MODEL,
-                        config=types.CreateCachedContentConfig(
-                            contents=[context],
-                            system_instruction=system_instruction,
-                            ttl="3600s"
-                        )
-                    )
-                    _ACTIVE_SYLLABUS_CACHES[cache_key] = {
-                        "name": new_cache.name,
-                        "expires_at": now + datetime.timedelta(seconds=3500)
-                    }
-                    config = types.GenerateContentConfig(cached_content=new_cache.name)
-                    resp = client.models.generate_content(
-                        model=DEFAULT_MODEL,
-                        contents=question,
-                        config=config
-                    )
-                return clean_and_repair_latex(resp.text)
-        except Exception as e:
-            print(f"[!] Context cache fallback: {e}")
-
+    # Direct context synthesis with resilient multi-tier fallback
     return generate_with_fallback(
-        prompt=question,
+        prompt=f"Exam Syllabus Context ({course} from {start_date} to {end_date}):\n\n{context}\n\nStudent Query: {question}",
         system_instruction=system_instruction,
         requested_model=model
     )
