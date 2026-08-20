@@ -11,7 +11,9 @@ from chromadb.api.types import EmbeddingFunction, Documents, Embeddings
 
 load_dotenv()
 
-CHROMA_DIR = Path("./vector_db")
+# Detect Hugging Face persistent storage at /data or custom VECTOR_DB_DIR
+data_mount = Path("/data/vector_db") if (Path("/data").exists() and os.access(Path("/data"), os.W_OK)) else Path("./vector_db")
+CHROMA_DIR = Path(os.environ.get("VECTOR_DB_DIR", str(data_mount)))
 CHROMA_DIR.mkdir(parents=True, exist_ok=True)
 client = genai.Client(api_key=os.environ.get("GEMINI_API_KEY"))
 
