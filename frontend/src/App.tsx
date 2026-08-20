@@ -19,7 +19,8 @@ import {
   CheckCircle2, 
   AlertCircle,
   ExternalLink,
-  Bot
+  Bot,
+  Printer
 } from 'lucide-react';
 
 interface CourseListResponse {
@@ -40,6 +41,8 @@ interface SearchResult {
   date: string;
   section: string;
   content: string;
+  file_name?: string;
+  score_type?: string;
 }
 
 interface Flashcard {
@@ -956,9 +959,20 @@ export default function App() {
               <div className="space-y-4">
                 {searchResults.map((res, i) => (
                   <div key={i} className="bg-slate-950/70 border border-slate-800 rounded-xl p-5">
-                    <div className="flex items-center justify-between text-xs text-emerald-400 font-medium mb-2">
-                      <span>📌 [{res.course}] {res.topic} ({res.date})</span>
-                      <span className="text-slate-500">{res.section}</span>
+                    <div className="flex items-center justify-between text-xs font-medium mb-2">
+                      <span className="text-emerald-400">📌 [{res.course}] {res.topic} {res.date ? `(${res.date})` : ''}</span>
+                      <div className="flex items-center gap-2">
+                        {res.score_type === 'keyword' ? (
+                          <span className="px-2 py-0.5 rounded-full text-[10px] bg-amber-500/15 text-amber-400 border border-amber-500/30">
+                            ⚡ Exact Match (FTS5)
+                          </span>
+                        ) : (
+                          <span className="px-2 py-0.5 rounded-full text-[10px] bg-blue-500/15 text-blue-400 border border-blue-500/30">
+                            🧠 Semantic Vector
+                          </span>
+                        )}
+                        <span className="text-slate-500">{res.section}</span>
+                      </div>
                     </div>
                     <div className="prose prose-invert max-w-none text-slate-300 text-sm">
                       <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]}>
@@ -1108,11 +1122,20 @@ export default function App() {
                   >
                     {isGeneratingCs ? 'Synthesizing...' : 'Generate Sheet'}
                   </button>
+                  {csContent && (
+                    <button
+                      onClick={() => window.print()}
+                      className="flex items-center space-x-1.5 px-4 py-2 bg-slate-800 border border-slate-700 text-slate-200 hover:bg-slate-700 font-medium text-xs rounded-xl transition"
+                    >
+                      <Printer className="w-3.5 h-3.5" />
+                      <span>Print / PDF Export</span>
+                    </button>
+                  )}
                 </div>
               </div>
 
               {csContent && (
-                <div className="bg-slate-950 border border-slate-800 rounded-xl p-6 mt-4">
+                <div className="bg-slate-950 border border-slate-800 rounded-xl p-6 mt-4 print:bg-white print:text-black print:border-none">
                   <AcademicMarkdown content={csContent} />
                 </div>
               )}

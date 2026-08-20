@@ -121,7 +121,11 @@ def process_file(file_path_str: str, course_name: str, topic_name: str, lecture_
     You are an expert academic tutor for a graduate-level STEM curriculum.
     Analyze the provided {content_type_label} for:
     - Course: "{course_name}"
-    - Topic: "{topic_name}"
+    - Topic: "{topic_name if topic_name and topic_name.strip() not in ['Lecture Note', 'Voice Note', 'General', 'Audio Recording', ''] else 'AUTO_DETECT_TOPIC'}"
+
+    [SMART TOPIC EXTRACTION & TITLING]:
+    - If the topic provided above is "AUTO_DETECT_TOPIC" or generic (e.g. "Lecture Note", "Audio Recording", or empty), automatically extract a concise, precise, 2-to-6 word academic title from the central subject of the lecture (e.g., "Lagrangian Duality & KKT", "Singular Value Decomposition", "Backpropagation & Gradient Descent").
+    - Start your markdown notes with `# {course_name}: <Extracted Academic Topic>`.
 
     [CRITICAL GROUNDING & SILENCE DETECTION]:
     - Ground your notes STRICTLY on the actual content, words, or document text provided.
@@ -134,15 +138,15 @@ def process_file(file_path_str: str, course_name: str, topic_name: str, lecture_
 
     If intelligible academic content is present, generate your response in standard Markdown (compatible with Obsidian math, Mermaid diagrams & callouts) using EXACTLY the following structure:
     
-    # {course_name}: {topic_name}
+    # {course_name}: <Topic Name>
     
     ## 1. Executive Summary & Conceptual Mind Map
     - 3 to 5 concise bullet points capturing the core conceptual thesis.
     
     ```mermaid
     graph TD
-        A[{topic_name}] --> B[Core Concept 1]
-        A --> C[Core Concept 2]
+        A[Core Topic] --> B[Concept 1]
+        A --> C[Concept 2]
         B --> D[Theorem / Result]
         C --> E[Application / Metric]
     ```
@@ -229,13 +233,29 @@ def process_file(file_path_str: str, course_name: str, topic_name: str, lecture_
         raise RuntimeError(f"All Gemini models failed. Last error: {last_err}")
 
     raw_text = clean_and_repair_latex(response.text)
+    
+    # Auto-extract topic title from markdown H1 if user left topic blank or generic
+    resolved_topic = topic_name.strip() if topic_name and topic_name.strip() else ""
+    if not resolved_topic or resolved_topic in ["Lecture Note", "Voice Note", "General", "Audio Recording", "AUTO_DETECT_TOPIC"]:
+        import re
+        h1_match = re.search(r"^#\s+[^:]+:\s*(.+)$", raw_text, re.MULTILINE)
+        if h1_match:
+            candidate_topic = h1_match.group(1).strip()
+            # Clean candidate title
+            candidate_topic = re.sub(r'[*_#`\[\]]', '', candidate_topic).strip()
+            if candidate_topic and len(candidate_topic) > 2:
+                resolved_topic = candidate_topic
+    
+    if not resolved_topic:
+        resolved_topic = "Lecture_Note"
+
     clean_course_tag = course_name.replace(" ", "")
-    clean_topic_tag = topic_name.replace(" ", "")
+    clean_topic_tag = resolved_topic.replace(" ", "")
 
     file_content = f"""---
 date: {lecture_date}
 course: "[[{course_name}]]"
-topic: "[[{topic_name}]]"
+topic: "[[{resolved_topic}]]"
 source_file: "{file_path.name}"
 model_used: "{selected_model}"
 tags:
@@ -250,7 +270,7 @@ tags:
     # Sanitize safe course and topic for filesystem (strip slashes, colons, quotes from calendar event titles)
     import re
     safe_course = re.sub(r'[/\\:*?"<>|]', '_', course_name).strip().replace(" ", "_") or "General"
-    safe_topic = re.sub(r'[/\\:*?"<>|]', '_', topic_name).strip().replace(" ", "_") or "Lecture_Note"
+    safe_topic = re.sub(r'[/\\:*?"<>|]', '_', resolved_topic).strip().replace(" ", "_") or "Lecture_Note"
     output_filename = LECTURES_DIR / f"{lecture_date}_{safe_course}_{safe_topic}.md"
     
     output_filename.write_text(file_content, encoding="utf-8")

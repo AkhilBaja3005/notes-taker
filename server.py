@@ -105,7 +105,7 @@ from core_engine import (
 )
 from ingest_audio import process_file
 from anki_exporter import generate_anki_deck_for_course, parse_flashcards_from_markdown
-from vector_store import semantic_search_notes
+from vector_store import semantic_search_notes, hybrid_search_notes
 from metadata_db import (
     query_courses,
     query_topics,
@@ -242,11 +242,11 @@ def get_lecture_content(filename: str):
         "content": target.read_text(encoding="utf-8", errors="ignore")
     }
 
-# ----------------- Vector Semantic Search -----------------
+# ----------------- Vector & Hybrid Semantic Search -----------------
 @app.get("/api/search")
 def search_knowledge_base(q: str = Query(..., min_length=2), course: Optional[str] = None, n_results: int = 5):
     course_filter = None if (not course or course == "All Courses") else course
-    matches = semantic_search_notes(q, n_results=n_results, course_filter=course_filter)
+    matches = hybrid_search_notes(q, n_results=n_results, course_filter=course_filter)
     return {"query": q, "count": len(matches), "results": matches}
 
 # ----------------- Direct Ingestion Upload -----------------

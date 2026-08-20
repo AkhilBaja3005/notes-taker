@@ -62,6 +62,17 @@ def init_db():
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     """)
+
+    # FTS5 Full-Text Search Virtual Table for Keyword & Exact Math/Acronym Search
+    cursor.execute("""
+        CREATE VIRTUAL TABLE IF NOT EXISTS lecture_fts USING fts5(
+            file_name UNINDEXED,
+            course,
+            topic,
+            content,
+            tokenize='unicode61'
+        )
+    """)
     conn.commit()
     conn.close()
 
@@ -180,6 +191,14 @@ def index_lecture_file(file_path: Path):
                 has_theorems=excluded.has_theorems,
                 updated_at=CURRENT_TIMESTAMP
         """, (file_path.name, course, topic, date_str, model_used, source_file, tags, has_flashcards, has_theorems))
+        
+        # Populate FTS5 table
+        cursor.execute("DELETE FROM lecture_fts WHERE file_name = ?", (file_path.name,))
+        cursor.execute("""
+            INSERT INTO lecture_fts (file_name, course, topic, content)
+            VALUES (?, ?, ?, ?)
+        """, (file_path.name, course, topic, content))
+
         conn.commit()
         conn.close()
     except Exception as e:
@@ -189,6 +208,57 @@ def index_all_lectures(lectures_dir: Path):
     init_db()
     for f in lectures_dir.glob("*.md"):
         index_lecture_file(f)
+
+def search_lectures_fts(query: str, course_filter: str = None, limit: int = 10) -> list[dict]:
+    """Performs SQLite FTS5 BM25 keyword matching for exact acronyms, theorems, and formulas."""
+    init_db()
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    
+    # Sanitize FTS5 query terms (wrap individual tokens in quotes to avoid syntax errors with special math chars)
+    terms = [f'"{t.strip()}"' for t in query.split() if t.strip() and t.strip() not in ['AND', 'OR', 'NOT', '"', "'"]]
+    if not terms:
+        conn.close()
+        return []
+    
+    match_expr = " OR ".join(terms)
+    
+    try:
+        if course_filter and course_filter != "All Courses":
+            cursor.execute("""
+                SELECT f.file_name, f.course, f.topic, snippet(lecture_fts, 3, '<b>', '</b>', '...', 25), m.lecture_date
+                FROM lecture_fts f
+                LEFT JOIN lecture_metadata m ON f.file_name = m.file_name
+                WHERE lecture_fts MATCH ? AND f.course = ?
+                ORDER BY rank LIMIT ?
+            """, (match_expr, course_filter.strip(), limit))
+        else:
+            cursor.execute("""
+                SELECT f.file_name, f.course, f.topic, snippet(lecture_fts, 3, '<b>', '</b>', '...', 25), m.lecture_date
+                FROM lecture_fts f
+                LEFT JOIN lecture_metadata m ON f.file_name = m.file_name
+                WHERE lecture_fts MATCH ?
+                ORDER BY rank LIMIT ?
+            """, (match_expr, limit))
+        rows = cursor.fetchall()
+    except Exception as e:
+        print(f"[!] FTS5 search notice: {e}")
+        rows = []
+    finally:
+        conn.close()
+
+    return [
+        {
+            "file_name": r[0],
+            "course": r[1],
+            "topic": r[2],
+            "content": r[3],
+            "date": r[4] or "",
+            "section": "Exact Match (FTS5)",
+            "score_type": "keyword"
+        }
+        for r in rows
+    ]
 
 def query_courses() -> list[str]:
     init_db()

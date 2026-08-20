@@ -130,15 +130,53 @@ def semantic_search_notes(query_text: str, n_results: int = 4, course_filter: st
                 "course": meta.get("course", "Unknown"),
                 "topic": meta.get("topic", "Unknown"),
                 "date": meta.get("date", "Unknown"),
-                "section": meta.get("section", ""),
-                "file_name": meta.get("file_name", "")
+                "section": meta.get("section", "Semantic Match"),
+                "file_name": meta.get("file_name", ""),
+                "score_type": "semantic"
             })
             
     return formatted_results
 
+def hybrid_search_notes(query_text: str, n_results: int = 6, course_filter: str = None) -> list[dict]:
+    """
+    Hybrid Search Engine:
+    Fuses ChromaDB Dense Vector Embeddings (Semantic similarity) with
+    SQLite FTS5 BM25 Keyword Search (Exact formula, acronym & theorem match)
+    via Reciprocal Rank Fusion (RRF).
+    """
+    from metadata_db import search_lectures_fts
+
+    # 1. Semantic Vector Matches
+    semantic_matches = semantic_search_notes(query_text, n_results=n_results, course_filter=course_filter)
+    
+    # 2. SQLite FTS5 Keyword Matches
+    fts_matches = search_lectures_fts(query_text, course_filter=course_filter, limit=n_results)
+
+    # 3. Reciprocal Rank Fusion (RRF) Deduplication
+    rrf_scores = {}
+    item_map = {}
+    k = 60
+
+    for rank, item in enumerate(semantic_matches):
+        key = (item["file_name"], item["content"][:80])
+        rrf_scores[key] = rrf_scores.get(key, 0.0) + (1.0 / (k + rank + 1))
+        item_map[key] = item
+
+    for rank, item in enumerate(fts_matches):
+        key = (item["file_name"], item["content"][:80])
+        rrf_scores[key] = rrf_scores.get(key, 0.0) + (1.2 / (k + rank + 1))  # Slight boost for exact keyword hits
+        if key not in item_map:
+            item_map[key] = item
+
+    # Sort items by fused RRF score
+    sorted_keys = sorted(rrf_scores.keys(), key=lambda x: rrf_scores[x], reverse=True)
+    fused_results = [item_map[k] for k in sorted_keys[:n_results]]
+    
+    return fused_results or semantic_matches or fts_matches
+
 if __name__ == "__main__":
     index_all_lectures_vector_db(Path("./lectures"))
-    res = semantic_search_notes("Explain Karush Kuhn Tucker conditions and Slater condition", n_results=2)
-    print(f"[+] Vector Search Test Results: {len(res)} matches found.")
+    res = hybrid_search_notes("Explain Karush Kuhn Tucker conditions and Slater condition", n_results=2)
+    print(f"[+] Hybrid Vector/FTS Search Test Results: {len(res)} matches found.")
     for r in res:
-        print(f" • Match from: {r['course']} - {r['topic']} ({r['date']})")
+        print(f" • Match from: {r['course']} - {r['topic']} ({r['date']}) [{r.get('section')}]")
