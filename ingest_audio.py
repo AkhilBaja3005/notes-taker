@@ -247,8 +247,10 @@ tags:
 {raw_text}
 """
 
-    safe_course = course_name.strip().replace(" ", "_")
-    safe_topic = topic_name.strip().replace(" ", "_")
+    # Sanitize safe course and topic for filesystem (strip slashes, colons, quotes from calendar event titles)
+    import re
+    safe_course = re.sub(r'[/\\:*?"<>|]', '_', course_name).strip().replace(" ", "_") or "General"
+    safe_topic = re.sub(r'[/\\:*?"<>|]', '_', topic_name).strip().replace(" ", "_") or "Lecture_Note"
     output_filename = LECTURES_DIR / f"{lecture_date}_{safe_course}_{safe_topic}.md"
     
     output_filename.write_text(file_content, encoding="utf-8")
