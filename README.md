@@ -151,8 +151,6 @@ curl -X POST "https://abaja-notes-taker.hf.space/api/upload" \
   -F "is_dense_math=true"
 ```
 
----
-
 ## 🤖 Telegram Bot Commands (`@abaja_note_taker_bot`)
 
 | Command | Description |
@@ -166,6 +164,40 @@ curl -X POST "https://abaja-notes-taker.hf.space/api/upload" \
 | **`/search <Query>`** | Semester-wide semantic vector search across all notes. |
 | **`/latex <Equation>`** | Render mathematical formulas as crisp high-resolution dark-mode images. |
 | **`/status`** | System health, indexed courses, active model, and Obsidian sync state. |
+
+---
+
+## 🛠️ Engineering Challenges & Production Solutions
+
+Building an end-to-end multi-cloud academic pipeline across mobile, containers, and LLM reasoning uncovered several non-trivial engineering challenges:
+
+### 📱 1. Mobile iOS Background Constraints
+- **Challenge**: iOS Shortcuts suspends active background recording (`Record Audio`) when the device auto-locks.
+  - **Solution**: Leveraged Apple's privileged **Voice Memos** app for background recording, decoupling recording from network upload via a 1-tap post-class shortcut.
+- **Challenge**: FastAPI/Starlette threw `422 Unprocessable Entity` (Stream Consumed) when reading files and form fields sequentially.
+  - **Solution**: Implemented single-pass stream parsing in [`server.py`](server.py) that scans all incoming form fields (`file`, `audio`, `document`, `data`), automatically decoding raw binary, multipart files, and Base64 payloads.
+- **Challenge**: iOS localized narrow no-break space (`\u202f`) in recording timestamps crashed HTTP clients with `'ascii' codec` errors.
+  - **Solution**: Added automatic ASCII sanitization in [`ingest_audio.py`](ingest_audio.py) and stripped illegal filesystem characters (`:`, `/`, `\`, `*`, `?`) from calendar event titles.
+
+### ⚡ 2. Cloud ASGI & Latency
+- **Challenge**: Legacy Streamlit WebSocket reconnect attempts (`ws://.../_stcore/stream`) caused unhandled `AssertionError` crashes in Starlette's `StaticFiles`.
+  - **Solution**: Implemented a universal WebSocket catch-all `@app.websocket("/{full_path:path}")` in [`server.py`](server.py) to safely absorb and disconnect unmapped WebSocket probes.
+- **Challenge**: Mobile shortcuts hung for 15+ seconds while waiting for transcription, Git sync, and Anki compilation.
+  - **Solution**: Converted `/api/upload` into an **asynchronous background worker** (`asyncio.to_thread`) that returns `200 OK` in **< 1 second** and dispatches a Telegram push notification when ready.
+
+### 🧠 3. Gemini 3.7 Flash Reasoning & Grounding
+- **Challenge**: Temporary Google API `503 UNAVAILABLE: Model experiencing high demand` spikes.
+  - **Solution**: Created a self-healing **Multi-Tier Fallback Pool** (`gemini-3.7-flash` $\rightarrow$ `gemini-3.6-flash` $\rightarrow$ `gemini-3.5-flash` $\rightarrow$ `gemini-3.1-flash-lite`) with dynamic thinking tokens (4096).
+- **Challenge**: LLM hallucinating theoretical notes on silent recordings or background noise.
+  - **Solution**: Injected strict silence & noise grounding rules into the prompt to emit concise diagnostic alerts instead of fabricated lectures.
+- **Challenge**: Malformed LaTeX syntax from LLMs (broken `\begin{aligned}` delimiters, unescaped slashes).
+  - **Solution**: Built `clean_and_repair_latex()` in [`core_engine.py`](core_engine.py), a deterministic regex engine that guarantees 100% rendering in Obsidian MathJax and KaTeX.
+
+### 🐙 4. Storage & Obsidian Git Sync
+- **Challenge**: Ephemeral container root filesystems wiping ChromaDB embeddings on reboot.
+  - **Solution**: Pointed ChromaDB directly to `/data/vector_db` (Hugging Face Persistent Storage Bucket mount).
+- **Challenge**: Accidental database locks (`metadata.db`) or audio files leaking into the Obsidian Git vault.
+  - **Solution**: Implemented automated vault-level `.gitignore` generation in [`git_sync.py`](git_sync.py) to isolate notes from runtime binaries.
 
 ---
 
