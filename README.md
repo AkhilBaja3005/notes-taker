@@ -122,14 +122,28 @@ The **Autonomous Academic Lecture Assistant** provides an end-to-end multi-cloud
 
 ---
 
+## 📱 iOS Shortcuts & Mobile Ecosystem (Voice Memos + Outlook)
+
+The system includes native integration with **Apple Voice Memos** and **iOS Shortcuts** for zero-friction mobile capture:
+
+1. **🎙️ Background Voice Memo Ingestion**:
+   - Record in Apple's native **Voice Memos** app with your phone screen locked or in your pocket for 2+ hours.
+   - Run the shortcut when class ends $\rightarrow$ reads your **Outlook / School Calendar** to auto-detect the current course name $\rightarrow$ uploads to `/api/upload` in **< 1 second**!
+2. **📄 Share Sheet Ingest**:
+   - Tap the iOS **Share (📤)** button on any PDF or slide deck in **Files**, **Safari**, or **Canvas** to ingest directly.
+3. **🐙 Obsidian Auto-Pull on PC / Mac**:
+   - Uses the **`Obsidian Git`** community plugin set to auto-pull every 2 minutes for zero-command bidirectional sync between iPhone $\leftrightarrow$ Cloud Hub $\leftrightarrow$ Desktop Vault.
+
+---
+
 ## 🛠️ Direct API Ingestion Usage
 
-You can upload lecture files directly to your cloud hub via `cURL` or Python:
+You can upload lecture files directly to your cloud hub via `cURL`, Python, or iOS Shortcuts:
 
 ```bash
 curl -X POST "https://abaja-notes-taker.hf.space/api/upload" \
   -H "X-API-Key: acad_UXLwTKdM3IaDGCeHYiu7dA5nuduOrpWdEsNQnwDXIp4" \
-  -F "file=@/path/to/lecture.pdf" \
+  -F "file=@/path/to/lecture.m4a" \
   -F "course_name=Machine Learning" \
   -F "topic_name=Backpropagation" \
   -F "lecture_date=2026-08-19" \
