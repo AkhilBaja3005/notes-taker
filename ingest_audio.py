@@ -278,12 +278,18 @@ tags:
         except Exception as e:
             print(f"[!] Warning: Remote file deletion failed: {e}")
 
-    # Clean local optimized audio to conserve container storage
-    if is_audio and actual_upload_path.exists() and actual_upload_path != file_path:
-        try:
-            actual_upload_path.unlink()
-        except Exception:
-            pass
+    # Clean local temporary and raw audio files to conserve container storage
+    if is_audio:
+        if actual_upload_path.exists() and actual_upload_path != file_path:
+            try:
+                actual_upload_path.unlink()
+            except Exception:
+                pass
+        if file_path.exists() and "incoming_audio" in str(file_path):
+            try:
+                file_path.unlink()
+            except Exception:
+                pass
 
     return output_filename
 
