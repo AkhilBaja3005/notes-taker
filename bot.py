@@ -517,7 +517,16 @@ def build_bot_app():
     if proxy_base_url:
         builder = builder.base_url(proxy_base_url)
 
+    async def global_telegram_error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
+        """Silently handles transient network gateway errors (e.g. 502 Bad Gateway, Timeout) with auto-retry."""
+        err = context.error
+        if "Bad Gateway" in str(err) or "502" in str(err) or "Timed out" in str(err) or "NetworkError" in str(type(err)):
+            print(f"[*] Transient Telegram network notice (auto-retrying): {err}")
+        else:
+            print(f"[!] Telegram bot error: {err}")
+
     app = builder.build()
+    app.add_error_handler(global_telegram_error_handler)
     app.add_handler(CommandHandler("start", start_command))
     app.add_handler(CommandHandler("help", start_command))
     app.add_handler(CommandHandler("newchat", newchat_command))
