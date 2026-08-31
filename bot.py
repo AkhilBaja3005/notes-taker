@@ -503,11 +503,6 @@ def build_bot_app():
     from telegram.request import HTTPXRequest
 
     proxy_base_url = os.environ.get("TELEGRAM_API_BASE_URL", "").strip()
-    # Bypass dead/suspended Render proxy endpoints automatically
-    if "onrender.com" in proxy_base_url or "notes-taker-uq8f" in proxy_base_url:
-        print("[*] Detected legacy/suspended Render proxy URL in environment. Bypassing directly to official Telegram API...")
-        proxy_base_url = ""
-
     if proxy_base_url and not proxy_base_url.endswith("/bot"):
         proxy_base_url = proxy_base_url.rstrip("/") + "/bot"
 

@@ -60,10 +60,7 @@ def notify_telegram_upload_complete(file_name: str, course_name: str, topic_name
     target_users = allowed_ids if allowed_ids else [8327334588]
     
     proxy_base_url = os.environ.get("TELEGRAM_API_BASE_URL", "").strip().rstrip("/")
-    if not proxy_base_url or "onrender.com" in proxy_base_url or "notes-taker-uq8f" in proxy_base_url:
-        proxy_base_url = "https://api.telegram.org"
-
-    api_url = f"{proxy_base_url}/bot{token}/sendMessage"
+    api_url = f"{proxy_base_url}/bot{token}/sendMessage" if proxy_base_url else f"https://api.telegram.org/bot{token}/sendMessage"
     
     text = (
         f"✅ *Lecture Ingestion Complete!*\n\n"
