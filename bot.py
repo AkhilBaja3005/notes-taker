@@ -503,14 +503,19 @@ def build_bot_app():
     from telegram.request import HTTPXRequest
 
     proxy_base_url = os.environ.get("TELEGRAM_API_BASE_URL", "").strip()
+    # Bypass dead/suspended Render proxy endpoints automatically
+    if "onrender.com" in proxy_base_url or "notes-taker-uq8f" in proxy_base_url:
+        print("[*] Detected legacy/suspended Render proxy URL in environment. Bypassing directly to official Telegram API...")
+        proxy_base_url = ""
+
     if proxy_base_url and not proxy_base_url.endswith("/bot"):
         proxy_base_url = proxy_base_url.rstrip("/") + "/bot"
 
     request_client = HTTPXRequest(
-        connect_timeout=60.0,
-        read_timeout=60.0,
-        write_timeout=60.0,
-        pool_timeout=60.0
+        connect_timeout=30.0,
+        read_timeout=30.0,
+        write_timeout=30.0,
+        pool_timeout=30.0
     )
 
     builder = ApplicationBuilder().token(TELEGRAM_TOKEN).request(request_client)
@@ -518,9 +523,10 @@ def build_bot_app():
         builder = builder.base_url(proxy_base_url)
 
     async def global_telegram_error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
-        """Silently handles transient network gateway errors (e.g. 502 Bad Gateway, Timeout) with auto-retry."""
+        """Silently handles transient network gateway errors, timeouts, and HTML proxy responses with auto-retry."""
         err = context.error
-        if "Bad Gateway" in str(err) or "502" in str(err) or "Timed out" in str(err) or "NetworkError" in str(type(err)):
+        err_str = str(err)
+        if any(k in err_str for k in ["Bad Gateway", "502", "504", "Timed out", "NetworkError", "JSONDecodeError", "Expecting value"]):
             print(f"[*] Transient Telegram network notice (auto-retrying): {err}")
         else:
             print(f"[!] Telegram bot error: {err}")
@@ -587,45 +593,38 @@ def run_dummy_health_server(port: int = 10000):
     except Exception as e:
         print(f"[!] Health server error: {e}", flush=True)
 
-def self_ping_render_keepalive(interval_seconds: int = 300):
+def self_ping_render_keepalive(interval_seconds: int = 60):
     """
-    Mutual Keepalive Daemon on Render:
-    Periodically pings both Render service AND Hugging Face Space (/healthz)
-    to keep both containers 100% awake 24/7 without idle sleep.
+    Robust Space & Endpoint Keepalive Daemon:
+    Periodically sends external GET requests to Hugging Face Space endpoints (/healthz, /api/system_status)
+    to keep the container 100% awake and prevent Hugging Face idle pausing.
     """
     import urllib.request
     import time
-    time.sleep(30)  # Initial boot delay
+    time.sleep(15)  # Initial boot delay
 
-    render_url = os.environ.get("RENDER_EXTERNAL_URL", "").strip().rstrip("/")
     hf_backend = os.environ.get("HF_BACKEND_URL", "https://abaja-notes-taker.hf.space").strip().rstrip("/")
+    if not hf_backend.startswith("http"):
+        hf_backend = f"https://{hf_backend}"
 
-    print(f"[*] Render Mutual Keepalive active. Monitoring Render: {render_url or 'localhost'} | HF: {hf_backend} (every {interval_seconds}s)")
+    print(f"[*] Proactive HF Space Keepalive Daemon active. Monitoring: {hf_backend} (every {interval_seconds}s)", flush=True)
+    
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/json,*/*",
+        "Cache-Control": "no-cache",
+        "Connection": "close"
+    }
+
     while True:
-        # 1. Ping Render itself
-        if render_url:
+        # Ping Hugging Face /healthz and /api/system_status
+        for path in ["/healthz", "/api/system_status"]:
             try:
-                req = urllib.request.Request(
-                    f"{render_url}/health",
-                    headers={"User-Agent": "Render-Self-Keepalive/2.0", "Connection": "close"}
-                )
-                with urllib.request.urlopen(req, timeout=15) as resp:
+                req = urllib.request.Request(f"{hf_backend}{path}", headers=headers)
+                with urllib.request.urlopen(req, timeout=10) as resp:
                     pass
             except Exception:
                 pass
-
-        # 2. Ping Hugging Face Space
-        if hf_backend:
-            try:
-                req_hf = urllib.request.Request(
-                    f"{hf_backend}/healthz",
-                    headers={"User-Agent": "Render-To-HF-Keepalive/2.0", "Connection": "close"}
-                )
-                with urllib.request.urlopen(req_hf, timeout=15) as resp_hf:
-                    pass
-            except Exception:
-                pass
-
         time.sleep(interval_seconds)
 
 def main():

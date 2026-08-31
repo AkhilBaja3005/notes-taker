@@ -35,12 +35,32 @@ class GeminiEmbeddingFunction(EmbeddingFunction):
         return embeddings
 
 gemini_ef = GeminiEmbeddingFunction()
-chroma_client = chromadb.PersistentClient(path=str(CHROMA_DIR))
-collection = chroma_client.get_or_create_collection(
-    name="academic_lectures",
-    embedding_function=gemini_ef,
-    metadata={"description": "Semester-wide graduate STEM lecture and theorem embeddings"}
-)
+try:
+    chroma_client = chromadb.PersistentClient(
+        path=str(CHROMA_DIR),
+        settings=chromadb.config.Settings(
+            anonymized_telemetry=False,
+            is_persistent=True,
+            chroma_api_impl="chromadb.api.segment.SegmentAPI"
+        )
+    )
+    collection = chroma_client.get_or_create_collection(
+        name="academic_lectures",
+        embedding_function=gemini_ef,
+        metadata={"description": "Semester-wide graduate STEM lecture and theorem embeddings"}
+    )
+except Exception as e:
+    try:
+        chroma_client = chromadb.PersistentClient(path=str(CHROMA_DIR))
+        collection = chroma_client.get_or_create_collection(
+            name="academic_lectures",
+            embedding_function=gemini_ef,
+            metadata={"description": "Semester-wide graduate STEM lecture and theorem embeddings"}
+        )
+    except Exception as e2:
+        print(f"[!] ChromaDB persistent client initialization notice: {e2}")
+        chroma_client = None
+        collection = None
 
 def chunk_lecture_note(file_path: Path) -> list[dict]:
     """Splits a structured lecture note into semantic chunks with metadata."""
