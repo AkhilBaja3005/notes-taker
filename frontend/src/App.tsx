@@ -551,7 +551,8 @@ export default function App() {
                 onChange={(e) => setSelectedModel(e.target.value)}
                 className="bg-transparent text-emerald-400 font-medium focus:outline-none cursor-pointer"
               >
-                <option value="gemini-3.7-flash" className="bg-slate-900 text-slate-100">🧠 Auto: Tiered Routing (3.7 Flash SOTA)</option>
+                <option value="gemini-3.8-flash" className="bg-slate-900 text-slate-100">🧠 Auto: Tiered Routing (3.8 Flash SOTA)</option>
+                <option value="gemini-3.8-flash" className="bg-slate-900 text-slate-100">⚡ Gemini 3.8 Flash (SOTA Reasoning)</option>
                 <option value="gemini-3.7-flash" className="bg-slate-900 text-slate-100">⚡ Gemini 3.7 Flash (SOTA Reasoning)</option>
                 <option value="gemini-3.6-flash" className="bg-slate-900 text-slate-100">⚡ Gemini 3.6 Flash (Audio & Math)</option>
                 <option value="gemini-3.1-flash-lite" className="bg-slate-900 text-slate-100">🚀 Gemini 3.1 Flash-Lite (Fast Slides/PDF)</option>

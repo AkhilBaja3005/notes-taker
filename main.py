@@ -336,7 +336,7 @@ def send_startup_deployment_notification():
         f"🚀 *New Deployment Detected & Online!*\n\n"
         f"• **Status**: `All Services Operational`\n"
         f"• **Boot Time**: `{boot_time}`\n"
-        f"• **Active Engine**: `{os.environ.get('GEMINI_MODEL', 'gemini-3.7-flash')}`\n"
+        f"• **Active Engine**: `{os.environ.get('GEMINI_MODEL', 'gemini-3.8-flash')}`\n"
         f"• **Webhook Gateway**: `Active via Render Proxy`\n"
         f"• **Dashboard**: [abaja-notes-taker.hf.space](https://abaja-notes-taker.hf.space)\n\n"
         f"💬 Send `/menu` or ask any question to begin!"

@@ -72,7 +72,7 @@ The **Autonomous Academic Lecture Assistant** provides an end-to-end multi-cloud
   - **In-Browser Audio Recording**: Features a live microphone recorder with audio playback, scrubbing, waveform inspection, and direct `.wav` download prior to AI processing.
 - **🧠 SOTA Gemini 3.7 Flash Reasoning**:
   - Automatically structures messy recordings into rigorous Markdown with full KaTeX math derivations (`\begin{aligned} ... \end{aligned}`), Mermaid DAG mind maps, and `> [!WARNING]` professor exam pitfall callouts.
-  - Multi-tier automatic fallback across active Flash models (`gemini-3.7-flash` $\rightarrow$ `gemini-3.6-flash` $\rightarrow$ `gemini-3.5-flash` $\rightarrow$ `gemini-3.1-flash-lite`).
+  - Multi-tier automatic fallback across active Flash models (`gemini-3.8-flash` $\rightarrow$ `gemini-3.7-flash` $\rightarrow$ `gemini-3.6-flash` $\rightarrow$ `gemini-3.5-flash` $\rightarrow$ `gemini-3.1-flash-lite`).
 - **📅 Academic Intelligence Briefing**:
   - **3-Way Scope Switch**:
     - 📅 **By Date**: Daily multi-subject executive summaries connecting themes across all classes.
@@ -147,7 +147,7 @@ curl -X POST "https://abaja-notes-taker.hf.space/api/upload" \
   -F "course_name=Machine Learning" \
   -F "topic_name=Backpropagation" \
   -F "lecture_date=2026-08-19" \
-  -F "model=gemini-3.7-flash" \
+  -F "model=gemini-3.8-flash" \
   -F "is_dense_math=true"
 ```
 
@@ -187,7 +187,7 @@ Building an end-to-end multi-cloud academic pipeline across mobile, containers, 
 
 ### 🧠 3. Gemini 3.7 Flash Reasoning & Grounding
 - **Challenge**: Temporary Google API `503 UNAVAILABLE: Model experiencing high demand` spikes.
-  - **Solution**: Created a self-healing **Multi-Tier Fallback Pool** (`gemini-3.7-flash` $\rightarrow$ `gemini-3.6-flash` $\rightarrow$ `gemini-3.5-flash` $\rightarrow$ `gemini-3.1-flash-lite`) with dynamic thinking tokens (4096).
+  - **Solution**: Created a self-healing **Multi-Tier Fallback Pool** (`gemini-3.8-flash` $\rightarrow$ `gemini-3.7-flash` $\rightarrow$ `gemini-3.6-flash` $\rightarrow$ `gemini-3.5-flash` $\rightarrow$ `gemini-3.1-flash-lite`) with dynamic thinking tokens (4096).
 - **Challenge**: LLM hallucinating theoretical notes on silent recordings or background noise.
   - **Solution**: Injected strict silence & noise grounding rules into the prompt to emit concise diagnostic alerts instead of fabricated lectures.
 - **Challenge**: Malformed LaTeX syntax from LLMs (broken `\begin{aligned}` delimiters, unescaped slashes).

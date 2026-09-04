@@ -13,6 +13,7 @@ from google.genai import types
 load_dotenv()
 
 SUPPORTED_MODELS = [
+    "gemini-3.8-flash",
     "gemini-3.7-flash",
     "gemini-3.6-flash",
     "gemini-3.5-flash",
@@ -23,7 +24,7 @@ SUPPORTED_MODELS = [
     "gemini-flash-lite-latest"
 ]
 
-DEFAULT_MODEL = os.environ.get("GEMINI_MODEL", "gemini-3.7-flash")
+DEFAULT_MODEL = os.environ.get("GEMINI_MODEL", "gemini-3.8-flash")
 
 client = genai.Client(api_key=os.environ.get("GEMINI_API_KEY"))
 LECTURES_DIR = Path(os.environ.get("LECTURES_DIR", "./lectures"))
