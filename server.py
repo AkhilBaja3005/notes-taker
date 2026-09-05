@@ -162,6 +162,7 @@ class ChatRequest(BaseModel):
     end_date: Optional[str] = None
     prompt: str
     model: Optional[str] = DEFAULT_MODEL
+    enable_web_search: Optional[bool] = False
 
 class CheatsheetRequest(BaseModel):
     course: str
@@ -385,7 +386,11 @@ def chat_exam_tutor(req: ChatRequest):
 
     try:
         save_chat_message(req.user_id, role="user", message=req.prompt)
-        reply = query_exam_syllabus(req.course, s_date, e_date, req.prompt, model=req.model)
+        reply = query_exam_syllabus(
+            req.course, s_date, e_date, req.prompt,
+            model=req.model,
+            enable_web_search=bool(req.enable_web_search)
+        )
         save_chat_message(req.user_id, role="assistant", message=reply)
         return {"response": reply}
     except Exception as e:

@@ -67,26 +67,37 @@ The **Autonomous Academic Lecture Assistant** provides an end-to-end multi-cloud
 
 ## ✨ Key Features & Capabilities
 
-- **🎙️ Multi-Format Ingestion**:
+- **🎙️ Multi-Format Ingestion & Smart AI Auto-Titling**:
   - Ingests `.mp3`, `.m4a`, `.wav`, `.aac`, `.ogg`, `.flac`, `.pdf`, `.docx`, `.pptx`, `.txt`, and `.md`.
+  - **Zero-Typing Auto-Titling**: If you leave the topic name blank or generic in iOS Shortcuts, Gemini automatically extracts the precise 2-to-6 word academic title (e.g. *Lagrangian Duality & KKT*, *Singular Value Decomposition*) from the lecture subject.
   - **In-Browser Audio Recording**: Features a live microphone recorder with audio playback, scrubbing, waveform inspection, and direct `.wav` download prior to AI processing.
-- **🧠 SOTA Gemini 3.7 Flash Reasoning**:
+- **🧠 SOTA Gemini 3.8 / 3.7 Flash Reasoning**:
   - Automatically structures messy recordings into rigorous Markdown with full KaTeX math derivations (`\begin{aligned} ... \end{aligned}`), Mermaid DAG mind maps, and `> [!WARNING]` professor exam pitfall callouts.
   - Multi-tier automatic fallback across active Flash models (`gemini-3.8-flash` $\rightarrow$ `gemini-3.7-flash` $\rightarrow$ `gemini-3.6-flash` $\rightarrow$ `gemini-3.5-flash` $\rightarrow$ `gemini-3.1-flash-lite`).
+- **🌐 Real-Time Google Search Grounding with Verified Citations**:
+  - Connects the assistant to live web knowledge for real-time external questions and new domain topics.
+  - Returns clickable citations (`[Title](url)`) linking to source papers and reference websites.
+  - Built-in quota fail-safe automatically pivots to Gemini's comprehensive internal knowledge base if free-tier search limits are encountered.
+- **🔍 Hybrid Vector + SQLite FTS5 Full-Text Search**:
+  - Combines ChromaDB dense vector embeddings (conceptual similarity) with SQLite FTS5 BM25 keyword matching (exact formulas, acronyms like `"KKT"`, `"SVD"`, `"ADMM"`, and theorems) via **Reciprocal Rank Fusion (RRF)**.
+  - Visual badges in the Web Hub highlight whether a match was found via `⚡ Exact Match (FTS5)` or `🧠 Semantic Vector`.
 - **📅 Academic Intelligence Briefing**:
   - **3-Way Scope Switch**:
     - 📅 **By Date**: Daily multi-subject executive summaries connecting themes across all classes.
     - 📚 **By Course**: Semester-wide progression milestones and governing formula tables.
     - 🎯 **By Topic**: Exhaustive topic deep dives with failure modes and 5-question active recall tests.
   - **🌙 Automated Evening Telegram Push**: Background scheduler daemon pushes daily study briefings to your Telegram bot at your customized local time (synced across browser timezones).
+- **📋 Master Cheatsheet & 1-Click Printable PDF Export**:
+  - Synthesize 1-page formula reference sheets across any date range.
+  - Browser-native **Print / PDF Export** button formats equations and summaries into a clean, ready-to-study PDF document.
 - **📇 3D Interactive Flashcards & Anki Deck Compiler**:
   - Review conceptual check questions with smooth 3D flip card animations in the browser.
   - Export native `.apkg` decks on-demand via the web hub or via `/anki <Course>` on Telegram.
 - **💬 Exam Tutor & Chat with Chronological History**:
   - Multi-turn conversational study copilot with date-range filters and full context grounding.
   - Past sessions grouped by thread with search and resume capability.
-- **⚡ Full-Duplex Render Streaming Proxy**:
-  - Render acts as an unrestricted 24/7 binary streaming gateway (`proxy_server.py`), streaming Telegram updates and large files to Hugging Face with zero disk footprint.
+- **⏱️ High-Frequency External Keepalive Daemon**:
+  - Pings the public HTTPS Space URL (`/healthz`, `/api/system_status`) every 60 seconds with realistic headers to generate active public traffic and permanently prevent Hugging Face from pausing.
 - **🔒 API Key Protection (`INGEST_API_KEY`)**:
   - Smart origin detection allows friction-free web uploads while securing programmatic `curl` and Python API calls with `X-API-Key`.
 

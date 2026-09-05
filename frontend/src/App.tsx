@@ -143,6 +143,7 @@ export default function App() {
   const [chatPrompt, setChatPrompt] = useState('');
   const [chatHistory, setChatHistory] = useState<Array<{ role: string; content: string }>>([]);
   const [isChatting, setIsChatting] = useState(false);
+  const [enableWebSearch, setEnableWebSearch] = useState(false);
   const [savedThreads, setSavedThreads] = useState<ChatThread[]>([]);
   const [historySearch, setHistorySearch] = useState('');
 
@@ -410,6 +411,7 @@ export default function App() {
           course: chatCourse,
           prompt: userMsg,
           model: selectedModel,
+          enable_web_search: enableWebSearch,
         }),
       });
       const data = await res.json();
@@ -897,22 +899,41 @@ export default function App() {
                 )}
               </div>
 
-              {/* Chat Input Box */}
-              <form onSubmit={handleSendChat} className="flex gap-2">
-                <input
-                  type="text"
-                  value={chatPrompt}
-                  onChange={(e) => setChatPrompt(e.target.value)}
-                  placeholder="Ask a question or request step-by-step KaTeX derivation..."
-                  className="flex-1 bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-sm text-slate-100 focus:outline-none focus:border-emerald-500"
-                />
-                <button
-                  type="submit"
-                  disabled={isChatting || !chatPrompt.trim()}
-                  className="px-5 py-2.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-medium rounded-xl text-sm transition disabled:opacity-50"
-                >
-                  Send
-                </button>
+              {/* Chat Input Box & Search Grounding Toggle */}
+              <form onSubmit={handleSendChat} className="space-y-3">
+                <div className="flex items-center justify-between px-1">
+                  <label className="flex items-center gap-2 text-xs text-slate-400 cursor-pointer hover:text-slate-200 transition select-none">
+                    <input
+                      type="checkbox"
+                      checked={enableWebSearch}
+                      onChange={(e) => setEnableWebSearch(e.target.checked)}
+                      className="rounded border-slate-700 bg-slate-950 text-emerald-500 focus:ring-emerald-500 w-3.5 h-3.5"
+                    />
+                    <span>🌐 Enable Real-time Web Grounding (Google Search)</span>
+                  </label>
+                  {enableWebSearch && (
+                    <span className="text-[11px] text-emerald-400 font-medium">
+                      ✓ Citing real-world web sources & papers
+                    </span>
+                  )}
+                </div>
+
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={chatPrompt}
+                    onChange={(e) => setChatPrompt(e.target.value)}
+                    placeholder="Ask a question or request step-by-step KaTeX derivation..."
+                    className="flex-1 bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-sm text-slate-100 focus:outline-none focus:border-emerald-500"
+                  />
+                  <button
+                    type="submit"
+                    disabled={isChatting || !chatPrompt.trim()}
+                    className="px-5 py-2.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-medium rounded-xl text-sm transition disabled:opacity-50"
+                  >
+                    Send
+                  </button>
+                </div>
               </form>
             </div>
           </div>

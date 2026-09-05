@@ -117,8 +117,46 @@ def generate_with_fallback(prompt: str, system_instruction: str = None, requeste
                     contents=prompt,
                     config=config
                 )
-            return clean_and_repair_latex(response.text)
+            output_text = clean_and_repair_latex(response.text)
+
+            # Extract verifiable Google Search grounding citations if present
+            if enable_web_search and getattr(response, "candidates", None):
+                cand = response.candidates[0]
+                meta = getattr(cand, "grounding_metadata", None)
+                if meta:
+                    chunks = getattr(meta, "grounding_chunks", None) or []
+                    sources = []
+                    seen_urls = set()
+                    for c in chunks:
+                        web = getattr(c, "web", None)
+                        if web and getattr(web, "uri", None) and web.uri not in seen_urls:
+                            seen_urls.add(web.uri)
+                            title = getattr(web, "title", None) or web.uri
+                            sources.append(f"- [{title}]({web.uri})")
+                    if sources:
+                        output_text += "\n\n### 🌐 Verified Web Sources & Citations:\n" + "\n".join(sources[:5])
+
+            return output_text
         except Exception as e:
+            # If Google Search Grounding hits free-tier quota (429 RESOURCE_EXHAUSTED),
+            # gracefully answer using the model's comprehensive internal knowledge base instead of failing.
+            if enable_web_search and "RESOURCE_EXHAUSTED" in str(e):
+                print(f"[*] Google Search grounding quota exceeded on {model_name}. Answering with internal academic knowledge...")
+                try:
+                    config_kwargs_safe = {}
+                    if system_instruction:
+                        config_kwargs_safe["system_instruction"] = system_instruction
+                    cfg_safe = types.GenerateContentConfig(**config_kwargs_safe) if config_kwargs_safe else None
+                    with contextlib.redirect_stderr(io.StringIO()):
+                        resp_fallback = client.models.generate_content(
+                            model=model_name,
+                            contents=prompt,
+                            config=cfg_safe
+                        )
+                    return clean_and_repair_latex(resp_fallback.text)
+                except Exception as inner_e:
+                    pass
+
             print(f"[!] Warning: Model {model_name} failed with: {e}. Retrying with next available model...")
             last_err = e
 
@@ -264,9 +302,16 @@ def generate_multi_scope_briefing(scope: str, target: str, course: str = None, m
 def generate_daily_recap(target_date: datetime.date, model: str = None) -> str:
     return generate_multi_scope_briefing(scope="date", target=target_date.isoformat(), model=model)
 
-def query_exam_syllabus(course: str, start_date: datetime.date, end_date: datetime.date, question: str, model: str = None) -> str:
+def query_exam_syllabus(course: str, start_date: datetime.date, end_date: datetime.date, question: str, model: str = None, enable_web_search: bool = False) -> str:
     context = get_notes_in_date_range(course, start_date, end_date)
     if not context:
+        if enable_web_search:
+            return generate_with_fallback(
+                prompt=f"Exam prep question for STEM course '{course}':\n\nStudent Query: {question}",
+                system_instruction=f"You are an expert STEM examination prep tutor for the course '{course}'. Use Google Search grounding to provide accurate, up-to-date derivations, theorems, and proofs with LaTeX equations.",
+                requested_model=model,
+                enable_web_search=True
+            )
         return f"No notes found for course '{course}' between {start_date} and {end_date}."
 
     system_instruction = f"""
@@ -283,9 +328,10 @@ def query_exam_syllabus(course: str, start_date: datetime.date, end_date: dateti
     - CRITICAL: Never emit isolated '\\end{{aligned}}'. Always open with '$$\\begin{{aligned}}' and close with '\\end{{aligned}}$$'.
     """
 
-    # Direct context synthesis with resilient multi-tier fallback
+    # Direct context synthesis with resilient multi-tier fallback and optional web grounding
     return generate_with_fallback(
         prompt=f"Exam Syllabus Context ({course} from {start_date} to {end_date}):\n\n{context}\n\nStudent Query: {question}",
         system_instruction=system_instruction,
-        requested_model=model
+        requested_model=model,
+        enable_web_search=enable_web_search
     )
