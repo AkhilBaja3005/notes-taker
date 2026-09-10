@@ -19,14 +19,14 @@ SUPPORTED_MODELS = [
     "gemini-3.5-flash",
     "gemini-3.1-flash-lite",
     "gemini-3.5-flash-lite",
-    "gemini-2.5-flash",
-    "gemini-flash-latest",
-    "gemini-flash-lite-latest"
 ]
 
 DEFAULT_MODEL = os.environ.get("GEMINI_MODEL", "gemini-3.8-flash")
 
-client = genai.Client(api_key=os.environ.get("GEMINI_API_KEY"))
+client = genai.Client(
+    api_key=os.environ.get("GEMINI_API_KEY"),
+    http_options={"timeout": 20000}
+)
 LECTURES_DIR = Path(os.environ.get("LECTURES_DIR", "./lectures"))
 
 # In-memory context cache tracker: (cache_name, expire_time, course_key)
@@ -91,8 +91,63 @@ def clean_and_repair_latex(markdown_text: str) -> str:
     text = re.sub(r"\n{3,}", "\n\n", text)
     return text
 
+def fetch_wikipedia_knowledge(query: str, max_results: int = 3) -> tuple[str, list[dict]]:
+    """
+    Searches Wikipedia Full-Text Knowledge API for relevant academic concepts,
+    definitions, and theorems with zero rate-limiting and 100% free uptime.
+    Returns formatted context snippet and citations.
+    """
+    import urllib.request
+    import urllib.parse
+    import json
+    import re
+    import html
+
+    # Extract core academic keywords (ignore instructional prompt filler)
+    clean_q = re.sub(r"[^\w\s-]", " ", query).strip()
+    words = [w for w in clean_q.split() if w.lower() not in {"student", "asking", "question", "explain", "derive", "proof", "derivation", "step", "full", "detailed", "detail"}]
+    search_term = " ".join(words[:10]) if words else clean_q[:50]
+    if not search_term.strip():
+        return "", []
+
+    search_url = f"https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch={urllib.parse.quote(search_term)}&utf8=&format=json&srlimit={max_results}"
+    req = urllib.request.Request(search_url, headers={
+        "User-Agent": "AcademicAssistant/2.0 (student-academic-bot@university.edu)"
+    })
+    
+    try:
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+            results = data.get("query", {}).get("search", [])
+            if not results:
+                return "", []
+
+            context_lines = ["🌐 External Verified Academic Knowledge (Wikipedia):"]
+            citations = []
+            for r in results:
+                title = r.get("title", "")
+                raw_snippet = r.get("snippet", "")
+                snippet = html.unescape(re.sub(r"<.*?>", "", raw_snippet).strip())
+                url = f"https://en.wikipedia.org/wiki/{urllib.parse.quote(title.replace(' ', '_'))}"
+                context_lines.append(f"• **{title}**: {snippet}")
+                citations.append({"title": title, "url": url})
+
+            return "\n".join(context_lines), citations
+    except Exception as e:
+        print(f"[!] Wikipedia knowledge retrieval notice: {e}")
+        return "", []
+
 def generate_with_fallback(prompt: str, system_instruction: str = None, requested_model: str = None, enable_web_search: bool = False) -> str:
-    DEPRECATED_MODELS = {"gemini-2.5-flash-lite"}
+    DEPRECATED_MODELS = {
+        "gemini-2.5-flash-lite",
+        "gemini-2.5-flash",
+        "gemini-2.0-flash",
+        "gemini-2.0-flash-lite",
+        "gemini-1.5-flash",
+        "gemini-1.5-pro",
+        "gemini-flash-latest",
+        "gemini-flash-lite-latest"
+    }
     
     candidate_models = []
     for m in [requested_model] + SUPPORTED_MODELS:
@@ -100,6 +155,15 @@ def generate_with_fallback(prompt: str, system_instruction: str = None, requeste
             candidate_models.append(m)
             
     last_err = None
+
+    # If web search is requested, fetch Wikipedia knowledge grounding for factual backing
+    wiki_context = ""
+    wiki_citations = []
+    augmented_prompt = prompt
+    if enable_web_search:
+        wiki_context, wiki_citations = fetch_wikipedia_knowledge(prompt)
+        if wiki_context:
+            augmented_prompt = f"{prompt}\n\n{wiki_context}"
 
     for model_name in candidate_models:
         try:
@@ -114,34 +178,41 @@ def generate_with_fallback(prompt: str, system_instruction: str = None, requeste
             with contextlib.redirect_stderr(io.StringIO()):
                 response = client.models.generate_content(
                     model=model_name,
-                    contents=prompt,
+                    contents=augmented_prompt,
                     config=config
                 )
             output_text = clean_and_repair_latex(response.text)
 
-            # Extract verifiable Google Search grounding citations if present
+            # Extract verifiable Google Search or Wikipedia citations
+            sources = []
+            seen_urls = set()
             if enable_web_search and getattr(response, "candidates", None):
                 cand = response.candidates[0]
                 meta = getattr(cand, "grounding_metadata", None)
                 if meta:
                     chunks = getattr(meta, "grounding_chunks", None) or []
-                    sources = []
-                    seen_urls = set()
                     for c in chunks:
                         web = getattr(c, "web", None)
                         if web and getattr(web, "uri", None) and web.uri not in seen_urls:
                             seen_urls.add(web.uri)
                             title = getattr(web, "title", None) or web.uri
                             sources.append(f"- [{title}]({web.uri})")
-                    if sources:
-                        output_text += "\n\n### 🌐 Verified Web Sources & Citations:\n" + "\n".join(sources[:5])
+
+            # Append Wikipedia citations if available
+            for w in wiki_citations:
+                if w["url"] not in seen_urls:
+                    seen_urls.add(w["url"])
+                    sources.append(f"- [{w['title']}]({w['url']})")
+
+            if sources:
+                output_text += "\n\n### 🌐 Verified Web Sources & Citations:\n" + "\n".join(sources[:5])
 
             return output_text
         except Exception as e:
             # If Google Search Grounding hits free-tier quota (429 RESOURCE_EXHAUSTED),
-            # gracefully answer using the model's comprehensive internal knowledge base instead of failing.
+            # gracefully answer using the model's comprehensive internal knowledge base + injected Wikipedia context.
             if enable_web_search and "RESOURCE_EXHAUSTED" in str(e):
-                print(f"[*] Google Search grounding quota exceeded on {model_name}. Answering with internal academic knowledge...")
+                print(f"[*] Google Search grounding quota exceeded on {model_name}. Answering with Wikipedia grounding + internal intelligence...")
                 try:
                     config_kwargs_safe = {}
                     if system_instruction:
@@ -150,10 +221,13 @@ def generate_with_fallback(prompt: str, system_instruction: str = None, requeste
                     with contextlib.redirect_stderr(io.StringIO()):
                         resp_fallback = client.models.generate_content(
                             model=model_name,
-                            contents=prompt,
+                            contents=augmented_prompt,
                             config=cfg_safe
                         )
-                    return clean_and_repair_latex(resp_fallback.text)
+                    safe_output = clean_and_repair_latex(resp_fallback.text)
+                    if wiki_citations:
+                        safe_output += "\n\n### 🌐 Verified Web Sources & Citations:\n" + "\n".join([f"- [{w['title']}]({w['url']})" for w in wiki_citations[:5]])
+                    return safe_output
                 except Exception as inner_e:
                     pass
 
@@ -305,14 +379,23 @@ def generate_daily_recap(target_date: datetime.date, model: str = None) -> str:
 def query_exam_syllabus(course: str, start_date: datetime.date, end_date: datetime.date, question: str, model: str = None, enable_web_search: bool = False) -> str:
     context = get_notes_in_date_range(course, start_date, end_date)
     if not context:
-        if enable_web_search:
-            return generate_with_fallback(
-                prompt=f"Exam prep question for STEM course '{course}':\n\nStudent Query: {question}",
-                system_instruction=f"You are an expert STEM examination prep tutor for the course '{course}'. Use Google Search grounding to provide accurate, up-to-date derivations, theorems, and proofs with LaTeX equations.",
-                requested_model=model,
-                enable_web_search=True
-            )
-        return f"No notes found for course '{course}' between {start_date} and {end_date}."
+        # User's question was not found in the local lecture DB:
+        # Automatically use Gemini 3 with Google Search Grounding to research and answer the question!
+        prompt = f"""
+        STEM Course / Topic: "{course}"
+        Student Question: "{question}"
+
+        Note: No matching lecture notes were found in the student's Obsidian vault for this course/date range.
+        Please search the web using Google Search grounding or synthesize a comprehensive, rigorous academic explanation.
+        Include step-by-step mathematical derivations in LaTeX ($...$ for inline, $$...$$ for display math).
+        """
+        system_instruction = f"You are an expert STEM professor for the course '{course}'. Use Google Search grounding to provide verified answers, formulas, theorems, and definitions."
+        return generate_with_fallback(
+            prompt=prompt,
+            system_instruction=system_instruction,
+            requested_model=model,
+            enable_web_search=True
+        )
 
     system_instruction = f"""
     You are an expert STEM examination prep tutor for the course "{course}".

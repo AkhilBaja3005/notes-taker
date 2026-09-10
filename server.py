@@ -95,6 +95,7 @@ def notify_telegram_upload_complete(file_name: str, course_name: str, topic_name
 from core_engine import (
     get_available_courses,
     generate_daily_recap,
+    generate_multi_scope_briefing,
     query_exam_syllabus,
     generate_with_fallback,
     SUPPORTED_MODELS,

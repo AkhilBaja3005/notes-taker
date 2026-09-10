@@ -418,13 +418,16 @@ async def text_message_handler(update: Update, context: ContextTypes.DEFAULT_TYP
     current_session_id = text_message_handler.active_sessions[uid]
     history_turns = get_recent_chat_history(uid, session_id=current_session_id, limit=6)
 
-    # 1. Search vector DB for relevant lecture context
-    results = semantic_search_notes(text, n_results=3)
+    # 1. Search vector DB for relevant lecture context safely
     rag_context = ""
-    if results:
-        rag_context = "Relevant Course Syllabus Notes from Vault:\n"
-        for r in results:
-            rag_context += f"[{r['course']} - {r['topic']} ({r['date']}) | {r['section']}]:\n{r['content']}\n\n"
+    try:
+        results = semantic_search_notes(text, n_results=3)
+        if results:
+            rag_context = "Relevant Course Syllabus Notes from Vault:\n"
+            for r in results:
+                rag_context += f"[{r['course']} - {r['topic']} ({r['date']}) | {r['section']}]:\n{r['content']}\n\n"
+    except Exception as search_err:
+        print(f"[!] Semantic search notice: {search_err}")
 
     # 2. Build multi-turn contextual prompt from database history
     history_snippet = ""
@@ -457,15 +460,19 @@ async def text_message_handler(update: Update, context: ContextTypes.DEFAULT_TYP
     - Comprehensive, publication-quality academic reference with complete derivations, rigorous LaTeX display math ($$\\begin{{aligned}}...\\end{{aligned}}$$), definitions, worked numerical examples, and failure modes.
     """
 
-    # If no local notes found for this concept, enable Google Search grounding
+    # If no local notes found for this concept, enable web/Wikipedia search grounding
     enable_search = len(rag_context.strip()) == 0
 
     await context.bot.send_chat_action(chat_id=update.effective_chat.id, action=ChatAction.TYPING)
 
     if enable_search:
-        status_msg = await update.message.reply_text("🌐 Querying global academic knowledge...")
+        status_msg = await update.message.reply_text(
+            "🔍 *Concept not found in your indexed notes.*\n"
+            "🌐 Searching external Web & Wikipedia with Gemini 3 reasoning...",
+            parse_mode="Markdown"
+        )
     else:
-        status_msg = await update.message.reply_text("🤔 Referencing lecture notes...")
+        status_msg = await update.message.reply_text("🤔 Referencing your lecture notes...")
 
     try:
         await context.bot.send_chat_action(chat_id=update.effective_chat.id, action=ChatAction.TYPING)
@@ -486,6 +493,8 @@ async def text_message_handler(update: Update, context: ContextTypes.DEFAULT_TYP
 
         # Decide what to send to Telegram
         telegram_output = detailed_part if wants_detailed else direct_part
+        if enable_search:
+            telegram_output = "🔍 _[Note: Not found in indexed notes — researched via Web & Wikipedia]_\n\n" + telegram_output
 
         # Save the rich comprehensive detailed version to database (tagged with current_session_id)
         save_chat_message(uid, role="user", message=text, session_id=current_session_id)

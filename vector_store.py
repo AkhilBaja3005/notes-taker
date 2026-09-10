@@ -35,32 +35,39 @@ class GeminiEmbeddingFunction(EmbeddingFunction):
         return embeddings
 
 gemini_ef = GeminiEmbeddingFunction()
-try:
-    chroma_client = chromadb.PersistentClient(
-        path=str(CHROMA_DIR),
-        settings=chromadb.config.Settings(
-            anonymized_telemetry=False,
-            is_persistent=True,
-            chroma_api_impl="chromadb.api.segment.SegmentAPI"
-        )
-    )
-    collection = chroma_client.get_or_create_collection(
-        name="academic_lectures",
-        embedding_function=gemini_ef,
-        metadata={"description": "Semester-wide graduate STEM lecture and theorem embeddings"}
-    )
-except Exception as e:
+_chroma_client = None
+_collection = None
+
+def get_collection():
+    """Lazily retrieves or creates the ChromaDB collection with robust fail-safes."""
+    global _chroma_client, _collection
+    if _collection is not None:
+        return _collection
+
     try:
-        chroma_client = chromadb.PersistentClient(path=str(CHROMA_DIR))
-        collection = chroma_client.get_or_create_collection(
+        _chroma_client = chromadb.PersistentClient(path=str(CHROMA_DIR))
+        _collection = _chroma_client.get_or_create_collection(
             name="academic_lectures",
             embedding_function=gemini_ef,
             metadata={"description": "Semester-wide graduate STEM lecture and theorem embeddings"}
         )
-    except Exception as e2:
-        print(f"[!] ChromaDB persistent client initialization notice: {e2}")
-        chroma_client = None
-        collection = None
+        return _collection
+    except Exception as e:
+        print(f"[!] Persistent ChromaDB init notice ({e}). Trying fallback client...")
+        try:
+            _chroma_client = chromadb.Client()
+            _collection = _chroma_client.get_or_create_collection(
+                name="academic_lectures",
+                embedding_function=gemini_ef,
+                metadata={"description": "Semester-wide graduate STEM lecture and theorem embeddings"}
+            )
+            return _collection
+        except Exception as e2:
+            print(f"[!] Warning: ChromaDB memory fallback notice: {e2}")
+            return None
+
+# Initialize on module load, but handle failure gracefully
+collection = get_collection()
 
 def chunk_lecture_note(file_path: Path) -> list[dict]:
     """Splits a structured lecture note into semantic chunks with metadata."""
@@ -105,16 +112,23 @@ def index_file_in_vector_db(file_path: Path):
     if not chunks:
         return
 
+    col = get_collection()
+    if col is None:
+        return
+
     ids = [c["id"] for c in chunks]
     documents = [c["text"] for c in chunks]
     metadatas = [c["metadata"] for c in chunks]
 
-    collection.upsert(
-        ids=ids,
-        documents=documents,
-        metadatas=metadatas
-    )
-    print(f"[+] Vector DB: Indexed {len(chunks)} chunks for {file_path.name}")
+    try:
+        col.upsert(
+            ids=ids,
+            documents=documents,
+            metadatas=metadatas
+        )
+        print(f"[+] Vector DB: Indexed {len(chunks)} chunks for {file_path.name}")
+    except Exception as e:
+        print(f"[!] Warning: Failed to upsert {file_path.name} to vector DB: {e}")
 
 def index_all_lectures_vector_db(lectures_dir: Path, max_workers: int = 4):
     """Multi-threaded concurrent vector indexing for fast vault hydration on boot."""
@@ -127,17 +141,34 @@ def index_all_lectures_vector_db(lectures_dir: Path, max_workers: int = 4):
         list(executor.map(index_file_in_vector_db, markdown_files))
 
 def semantic_search_notes(query_text: str, n_results: int = 4, course_filter: str = None) -> list[dict]:
-    """Performs semantic similarity vector search across all indexed semester lectures."""
+    """Performs semantic similarity vector search across all indexed semester lectures with automatic FTS5 fallback."""
+    col = get_collection()
+    if col is None:
+        # Fallback to SQLite FTS5 if ChromaDB is unavailable
+        try:
+            from metadata_db import search_lectures_fts
+            return search_lectures_fts(query_text, course_filter=course_filter, limit=n_results)
+        except Exception:
+            return []
+
     where_filter = None
     if course_filter:
         clean_c = course_filter.replace("[[", "").replace("]]", "").strip()
         where_filter = {"course": clean_c}
 
-    results = collection.query(
-        query_texts=[query_text],
-        n_results=n_results,
-        where=where_filter
-    )
+    try:
+        results = col.query(
+            query_texts=[query_text],
+            n_results=n_results,
+            where=where_filter
+        )
+    except Exception as e:
+        print(f"[!] Vector search notice: {e}. Falling back to SQLite FTS5 search...")
+        try:
+            from metadata_db import search_lectures_fts
+            return search_lectures_fts(query_text, course_filter=course_filter, limit=n_results)
+        except Exception:
+            return []
 
     formatted_results = []
     if results and "documents" in results and results["documents"]:
