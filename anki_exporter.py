@@ -1,8 +1,12 @@
+import os
 import re
 import random
-import frontmatter
 from pathlib import Path
+import frontmatter
 import genanki
+from dotenv import load_dotenv
+
+load_dotenv()
 
 # Fixed Anki Model IDs
 ANKI_MODEL_ID = 1607392319
@@ -50,8 +54,60 @@ STEM_ANKI_MODEL = genanki.Model(
     '''
 )
 
+from pydantic import BaseModel, Field
+import os
+from google import genai
+from google.genai import types
+
+class FlashcardItem(BaseModel):
+    question: str = Field(description="Conceptual, definition, or derivation active recall question")
+    answer: str = Field(description="Clear, mathematically rigorous answer with standard LaTeX ($...$)")
+
+class FlashcardDeckModel(BaseModel):
+    course: str = Field(description="Course name")
+    topic: str = Field(description="Topic name")
+    flashcards: list[FlashcardItem] = Field(description="List of extracted flashcards")
+
+def extract_structured_flashcards_from_text(markdown_text: str, course: str = "General", topic: str = "Key Concepts") -> list[tuple[str, str]]:
+    """
+    Tier 1 Native Structured Extraction using Gemini Flash-Lite.
+    Uses native response_schema with Pydantic model to guarantee clean, strictly-typed
+    JSON array structures every single time with zero regex parsing errors.
+    """
+    api_key = os.environ.get("GEMINI_API_KEY")
+    if api_key:
+        client = genai.Client(api_key=api_key)
+        prompt = f"""
+        Extract 5 to 10 high-yield, exam-oriented study flashcards from the following lecture content:
+        Course: {course}
+        Topic: {topic}
+
+        Lecture Content:
+        {markdown_text[:8000]}
+        """
+        for model_name in ["gemini-3.1-flash-lite", "gemini-3.5-flash-lite", "gemini-3.6-flash"]:
+            try:
+                config = types.GenerateContentConfig(
+                    response_mime_type="application/json",
+                    response_schema=FlashcardDeckModel,
+                    system_instruction="You are an expert STEM flashcard compiler. Formulate rigorous active recall questions with clean LaTeX math ($...$)."
+                )
+                res = client.models.generate_content(
+                    model=model_name,
+                    contents=prompt,
+                    config=config
+                )
+                deck = FlashcardDeckModel.model_validate_json(res.text)
+                if deck.flashcards:
+                    return [(card.question, card.answer) for card in deck.flashcards]
+            except Exception as e:
+                print(f"[!] Warning: Structured flashcard extraction fallback with {model_name}: {e}")
+
+    # Fallback to deterministic regex parser if offline or API limit reached
+    return parse_flashcards_from_markdown(markdown_text)
+
 def parse_flashcards_from_markdown(markdown_text: str) -> list[tuple[str, str]]:
-    """Extracts (Question, Answer) pairs from Section 4 of note markdown."""
+    """Extracts (Question, Answer) pairs from Section 4 of note markdown via regex fallback."""
     cards = []
     qa_pattern = r"(?:\*\*Q\d*:\s*|\*\*Question\d*:\s*|Q\d*:\s*)(.*?)(?:\*\*|\n)(?:\s*\*\*A\d*:\s*|\s*\*\*Answer\d*:\s*|\s*A\d*:\s*)(.*?)(?=\n\s*(?:\*\*Q|Q\d*:|##|\Z))"
     matches = re.findall(qa_pattern, markdown_text, flags=re.DOTALL)

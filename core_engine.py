@@ -13,15 +13,15 @@ from google.genai import types
 load_dotenv()
 
 SUPPORTED_MODELS = [
-    "gemini-3.8-flash",
-    "gemini-3.7-flash",
     "gemini-3.6-flash",
+    "gemini-3.7-flash",
+    "gemini-3.8-flash",
     "gemini-3.5-flash",
     "gemini-3.1-flash-lite",
     "gemini-3.5-flash-lite",
 ]
 
-DEFAULT_MODEL = os.environ.get("GEMINI_MODEL", "gemini-3.8-flash")
+DEFAULT_MODEL = os.environ.get("GEMINI_MODEL", "gemini-3.6-flash")
 
 client = genai.Client(
     api_key=os.environ.get("GEMINI_API_KEY"),
@@ -122,16 +122,20 @@ def fetch_wikipedia_knowledge(query: str, max_results: int = 3) -> tuple[str, li
             if not results:
                 return "", []
 
-            context_lines = ["🌐 External Verified Academic Knowledge (Wikipedia):"]
+            context_lines = [
+                "<wikipedia_grounding_context>",
+                "<!-- Verified external knowledge from Wikipedia. Use these facts and cite the exact URLs when relevant -->"
+            ]
             citations = []
             for r in results:
                 title = r.get("title", "")
                 raw_snippet = r.get("snippet", "")
                 snippet = html.unescape(re.sub(r"<.*?>", "", raw_snippet).strip())
                 url = f"https://en.wikipedia.org/wiki/{urllib.parse.quote(title.replace(' ', '_'))}"
-                context_lines.append(f"• **{title}**: {snippet}")
+                context_lines.append(f"<source title=\"{title}\" url=\"{url}\">\n{snippet}\n</source>")
                 citations.append({"title": title, "url": url})
 
+            context_lines.append("</wikipedia_grounding_context>")
             return "\n".join(context_lines), citations
     except Exception as e:
         print(f"[!] Wikipedia knowledge retrieval notice: {e}")
@@ -168,8 +172,23 @@ def generate_with_fallback(prompt: str, system_instruction: str = None, requeste
     for model_name in candidate_models:
         try:
             config_kwargs = {}
-            if system_instruction:
-                config_kwargs["system_instruction"] = system_instruction
+            
+            # Dynamic Chain-of-Thought modifier when falling back to Flash-Lite models (500 RPD tier)
+            active_sys_inst = system_instruction or ""
+            if "lite" in model_name.lower():
+                active_sys_inst += (
+                    "\n\n[REASONING COMPENSATOR]: Break this problem down step-by-step using strict chain-of-thought logic. "
+                    "Verify each mathematical derivation, proof step, and intermediate equation thoroughly before outputting the final response."
+                )
+            if enable_web_search and wiki_context:
+                active_sys_inst += (
+                    "\n\n[CITATION DIRECTIVE]: Whenever referencing facts, definitions, or equations from <wikipedia_grounding_context>, "
+                    "explicitly append the citation using the exact URLs provided inside those tags."
+                )
+
+            if active_sys_inst.strip():
+                config_kwargs["system_instruction"] = active_sys_inst.strip()
+
             if enable_web_search:
                 config_kwargs["tools"] = [types.Tool(google_search=types.GoogleSearch())]
                 
@@ -399,12 +418,14 @@ def query_exam_syllabus(course: str, start_date: datetime.date, end_date: dateti
 
     system_instruction = f"""
     You are an expert STEM examination prep tutor for the course "{course}".
-    You have access to the complete lecture syllabus notes for the target window ({start_date} to {end_date}):
+    You have access to the complete lecture syllabus notes for the target window ({start_date} to {end_date}) inside <user_notes_context>.
     
+    <user_notes_context>
     {context}
+    </user_notes_context>
     
     Rules:
-    - Answer doubts strictly based on the provided lectures.
+    - Answer doubts strictly based on the provided lectures inside <user_notes_context>.
     - Always cite the exact lecture dates for specific concepts, proofs, and definitions.
     - If asked for mock exams, generate challenging problems matching the professor's emphasis with step-by-step solutions and marking schemes.
     - Render all mathematical equations in LaTeX ($...$ for inline, $$...$$ for display).
@@ -413,8 +434,174 @@ def query_exam_syllabus(course: str, start_date: datetime.date, end_date: dateti
 
     # Direct context synthesis with resilient multi-tier fallback and optional web grounding
     return generate_with_fallback(
-        prompt=f"Exam Syllabus Context ({course} from {start_date} to {end_date}):\n\n{context}\n\nStudent Query: {question}",
+        prompt=f"<user_notes_context>\n{context}\n</user_notes_context>\n\nStudent Query: {question}",
         system_instruction=system_instruction,
         requested_model=model,
         enable_web_search=enable_web_search
     )
+
+def touch_cache_heartbeat(cache_name: str, extend_seconds: int = 1800) -> bool:
+    """
+    Extends the TTL of an existing Gemini context cache so active student study sessions
+    do not expire prematurely after the default 5-minute inactivity window.
+    """
+    if not cache_name:
+        return False
+    try:
+        now = datetime.datetime.now(datetime.timezone.utc)
+        new_expire = now + datetime.timedelta(seconds=extend_seconds)
+        client.caches.update(
+            name=cache_name,
+            config=types.UpdateCachedContentConfig(
+                ttl=f"{extend_seconds}s"
+            )
+        )
+        _ACTIVE_SYLLABUS_CACHES[cache_name] = new_expire
+        print(f"[*] Successfully renewed cache heartbeat for '{cache_name}' (+{extend_seconds}s).")
+        return True
+    except Exception as e:
+        print(f"[!] Warning: Cache heartbeat update notice for '{cache_name}': {e}")
+        return False
+
+def stream_query_exam_syllabus(
+    course: str,
+    start_date: datetime.date,
+    end_date: datetime.date,
+    question: str,
+    model: str = None
+):
+    """
+    Generator that streams exam syllabus query answers chunk by chunk
+    using client.models.generate_content_stream for low-latency TTFT response.
+    """
+    context = get_notes_in_date_range(course, start_date, end_date)
+    if not context:
+        prompt = f"""
+        STEM Course / Topic: "{course}"
+        Student Question: "{question}"
+
+        Note: No matching lecture notes were found in the student's Obsidian vault for this course/date range.
+        Please synthesize a comprehensive, rigorous academic explanation.
+        Include step-by-step mathematical derivations in LaTeX ($...$ for inline, $$...$$ for display math).
+        """
+        system_instruction = f"You are an expert STEM professor for the course '{course}'. Synthesize verified answers, formulas, theorems, and definitions."
+        augmented_prompt = prompt
+    else:
+        system_instruction = f"""
+        You are an expert STEM examination prep tutor for the course "{course}".
+        You have access to the complete lecture syllabus notes for the target window ({start_date} to {end_date}) inside <user_notes_context>.
+        
+        <user_notes_context>
+        {context}
+        </user_notes_context>
+        
+        Rules:
+        - Answer doubts strictly based on the provided lectures inside <user_notes_context>.
+        - Always cite the exact lecture dates for specific concepts, proofs, and definitions.
+        - Render all mathematical equations in LaTeX ($...$ for inline, $$...$$ for display).
+        """
+        augmented_prompt = f"<user_notes_context>\n{context}\n</user_notes_context>\n\nStudent Query: {question}"
+
+    DEPRECATED_MODELS = {
+        "gemini-2.0-flash", "gemini-2.0-flash-lite", "gemini-2.5-flash",
+        "gemini-2.5-flash-lite", "gemini-1.5-flash", "gemini-1.5-pro",
+        "gemini-flash-latest", "gemini-flash-lite-latest"
+    }
+
+    candidate_models = []
+    for m in [model] + SUPPORTED_MODELS:
+        if m and m not in candidate_models and m not in DEPRECATED_MODELS:
+            candidate_models.append(m)
+
+    stream_success = False
+    for candidate in candidate_models:
+        try:
+            config_kwargs = {}
+            active_sys_inst = system_instruction or ""
+            if "lite" in candidate.lower():
+                active_sys_inst += (
+                    "\n\n[REASONING COMPENSATOR]: Break this problem down step-by-step using strict chain-of-thought logic. "
+                    "Verify each mathematical derivation before outputting the final response."
+                )
+            if active_sys_inst.strip():
+                config_kwargs["system_instruction"] = active_sys_inst.strip()
+
+            cfg = types.GenerateContentConfig(**config_kwargs) if config_kwargs else None
+            response_stream = client.models.generate_content_stream(
+                model=candidate,
+                contents=augmented_prompt,
+                config=cfg
+            )
+            for chunk in response_stream:
+                if chunk.text:
+                    yield chunk.text
+            stream_success = True
+            break
+        except Exception as e:
+            print(f"[!] Warning: Streaming with {candidate} failed: {e}. Trying fallback...")
+
+    if not stream_success:
+        yield f"\n[!] Error: All Gemini models were unavailable or exhausted."
+
+def stream_generate_content(
+    prompt: str,
+    requested_model: str = None,
+    system_instruction: str = None,
+    enable_web_search: bool = False
+):
+    """
+    General streaming generator with multi-model fallback and Wikipedia knowledge grounding.
+    Yields text chunks in real-time as Gemini streams them.
+    """
+    DEPRECATED_MODELS = {
+        "gemini-2.0-flash", "gemini-2.0-flash-lite", "gemini-2.5-flash",
+        "gemini-2.5-flash-lite", "gemini-1.5-flash", "gemini-1.5-pro",
+        "gemini-flash-latest", "gemini-flash-lite-latest"
+    }
+
+    candidate_models = []
+    for m in [requested_model] + SUPPORTED_MODELS:
+        if m and m not in candidate_models and m not in DEPRECATED_MODELS:
+            candidate_models.append(m)
+
+    wiki_context = ""
+    augmented_prompt = prompt
+    if enable_web_search:
+        wiki_context, _ = fetch_wikipedia_knowledge(prompt)
+        if wiki_context:
+            augmented_prompt = f"{prompt}\n\n{wiki_context}"
+
+    for model_name in candidate_models:
+        try:
+            config_kwargs = {}
+            active_sys_inst = system_instruction or ""
+            if "lite" in model_name.lower():
+                active_sys_inst += (
+                    "\n\n[REASONING COMPENSATOR]: Break this problem down step-by-step using strict chain-of-thought logic. "
+                    "Verify each mathematical derivation, proof step, and intermediate equation thoroughly before outputting the final response."
+                )
+            if enable_web_search and wiki_context:
+                active_sys_inst += (
+                    "\n\n[CITATION DIRECTIVE]: Whenever referencing facts, definitions, or equations from <wikipedia_grounding_context>, "
+                    "explicitly append the citation using the exact URLs provided inside those tags."
+                )
+
+            if active_sys_inst.strip():
+                config_kwargs["system_instruction"] = active_sys_inst.strip()
+
+            cfg = types.GenerateContentConfig(**config_kwargs) if config_kwargs else None
+            response_stream = client.models.generate_content_stream(
+                model=model_name,
+                contents=augmented_prompt,
+                config=cfg
+            )
+            for chunk in response_stream:
+                if chunk.text:
+                    yield chunk.text
+            return
+        except Exception as e:
+            print(f"[!] Warning: Streaming with {model_name} error: {e}. Retrying with next model...")
+
+    yield "\n[!] All Gemini models were unavailable or exhausted."
+
+

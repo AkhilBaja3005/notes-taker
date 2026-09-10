@@ -1,6 +1,7 @@
 import os
 import io
 import re
+import time
 import datetime
 import tempfile
 from pathlib import Path
@@ -24,6 +25,7 @@ from core_engine import (
     generate_multi_scope_briefing,
     query_exam_syllabus,
     generate_with_fallback,
+    stream_generate_content,
     SUPPORTED_MODELS,
     DEFAULT_MODEL
 )
@@ -366,11 +368,26 @@ async def file_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     msg = update.message
-    doc = msg.document or (msg.audio if msg.audio else (msg.voice if msg.voice else None))
+    doc = None
+    file_name = None
+
+    if msg.photo:
+        # Highest resolution photo is the last element
+        doc = msg.photo[-1]
+        file_name = f"photo_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.jpg"
+    elif msg.document:
+        doc = msg.document
+        file_name = getattr(doc, 'file_name', f"doc_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf")
+    elif msg.audio:
+        doc = msg.audio
+        file_name = getattr(doc, 'file_name', f"audio_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.mp3")
+    elif msg.voice:
+        doc = msg.voice
+        file_name = f"voice_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.ogg"
+
     if not doc:
         return
 
-    file_name = getattr(doc, 'file_name', f"voice_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.ogg")
     caption = msg.caption or ""
     parts = [p.strip() for p in caption.split("|")]
     
@@ -423,9 +440,10 @@ async def text_message_handler(update: Update, context: ContextTypes.DEFAULT_TYP
     try:
         results = semantic_search_notes(text, n_results=3)
         if results:
-            rag_context = "Relevant Course Syllabus Notes from Vault:\n"
+            rag_context = "<user_notes_context>\n<!-- Verified Chunks from Student's Obsidian Lecture Vault -->\n"
             for r in results:
-                rag_context += f"[{r['course']} - {r['topic']} ({r['date']}) | {r['section']}]:\n{r['content']}\n\n"
+                rag_context += f"<lecture course=\"{r['course']}\" topic=\"{r['topic']}\" date=\"{r['date']}\" section=\"{r['section']}\">\n{r['content']}\n</lecture>\n"
+            rag_context += "</user_notes_context>\n"
     except Exception as search_err:
         print(f"[!] Semantic search notice: {search_err}")
 
@@ -476,13 +494,46 @@ async def text_message_handler(update: Update, context: ContextTypes.DEFAULT_TYP
 
     try:
         await context.bot.send_chat_action(chat_id=update.effective_chat.id, action=ChatAction.TYPING)
-        raw_reply = generate_with_fallback(
+        
+        # Punctuation set for natural sentence & clause breaks
+        PUNCTUATION_TRIGGERS = {".", "!", "?", ":", ";", "\n"}
+        last_edit_time = time.time()
+        MIN_EDIT_INTERVAL = 0.85  # Prevents Telegram 429 rate limit
+        accumulated_raw = ""
+        last_rendered_text = ""
+        prefix = "🔍 _[Note: Not found in indexed notes — researched via Web & Wikipedia]_\n\n" if enable_search else ""
+
+        for chunk in stream_generate_content(
             prompt=prompt,
             requested_model=current_bot_model,
             enable_web_search=enable_search
-        )
-        
-        # Parse direct vs detailed sections
+        ):
+            accumulated_raw += chunk
+            
+            # Check if chunk contains a punctuation boundary
+            has_punctuation = any(p in chunk for p in PUNCTUATION_TRIGGERS)
+            now = time.time()
+
+            if has_punctuation and (now - last_edit_time >= MIN_EDIT_INTERVAL):
+                # Extract preview of direct or detailed text
+                current_display = accumulated_raw
+                if "=== FULL_DETAILED_PROOF ===" in accumulated_raw:
+                    parts = accumulated_raw.split("=== FULL_DETAILED_PROOF ===")
+                    current_display = parts[1].strip() if wants_detailed else parts[0].replace("=== TELEGRAM_DIRECT ===", "").strip()
+                elif "=== TELEGRAM_DIRECT ===" in accumulated_raw:
+                    current_display = accumulated_raw.replace("=== TELEGRAM_DIRECT ===", "").strip()
+
+                current_display = current_display.strip()
+                if current_display and current_display != last_rendered_text and len(current_display) < 3800:
+                    try:
+                        await status_msg.edit_text(prefix + current_display + " ▍")
+                        last_rendered_text = current_display
+                        last_edit_time = now
+                    except Exception:
+                        pass
+
+        # Final complete response processing
+        raw_reply = accumulated_raw
         if "=== TELEGRAM_DIRECT ===" in raw_reply and "=== FULL_DETAILED_PROOF ===" in raw_reply:
             parts = raw_reply.split("=== FULL_DETAILED_PROOF ===")
             direct_part = parts[0].replace("=== TELEGRAM_DIRECT ===", "").strip()
@@ -491,17 +542,27 @@ async def text_message_handler(update: Update, context: ContextTypes.DEFAULT_TYP
             direct_part = raw_reply.strip()
             detailed_part = raw_reply.strip()
 
-        # Decide what to send to Telegram
         telegram_output = detailed_part if wants_detailed else direct_part
         if enable_search:
-            telegram_output = "🔍 _[Note: Not found in indexed notes — researched via Web & Wikipedia]_\n\n" + telegram_output
+            telegram_output = prefix + telegram_output
 
-        # Save the rich comprehensive detailed version to database (tagged with current_session_id)
+        # Save to database
         save_chat_message(uid, role="user", message=text, session_id=current_session_id)
         save_chat_message(uid, role="assistant", message=detailed_part, session_id=current_session_id)
 
-        await status_msg.delete()
-        await send_smart_message(update, telegram_output)
+        # Final message update (strip cursor indicator)
+        try:
+            if len(telegram_output) < 3900:
+                await status_msg.edit_text(telegram_output, parse_mode="Markdown")
+            else:
+                await status_msg.delete()
+                await send_smart_message(update, telegram_output)
+        except Exception:
+            try:
+                await status_msg.edit_text(telegram_output)
+            except Exception:
+                await status_msg.delete()
+                await send_smart_message(update, telegram_output)
     except Exception as e:
         await status_msg.edit_text(f"❌ Error: {e}")
 
@@ -514,6 +575,22 @@ def build_bot_app():
     proxy_base_url = os.environ.get("TELEGRAM_API_BASE_URL", "").strip()
     if proxy_base_url and not proxy_base_url.endswith("/bot"):
         proxy_base_url = proxy_base_url.rstrip("/") + "/bot"
+
+    # Verify proxy health before binding to avoid dropping messages on broken workers
+    if proxy_base_url:
+        import urllib.request
+        try:
+            test_req = urllib.request.Request(
+                f"{proxy_base_url}{TELEGRAM_TOKEN}/getMe",
+                headers={"User-Agent": "NotesTakerHealthCheck/1.0"}
+            )
+            with urllib.request.urlopen(test_req, timeout=5) as resp:
+                if resp.status != 200:
+                    print(f"[!] Warning: Proxy returned status {resp.status}. Defaulting to direct Telegram API.")
+                    proxy_base_url = None
+        except Exception as proxy_err:
+            print(f"[!] Warning: Proxy check failed ({proxy_err}). Automatically falling back to direct api.telegram.org!")
+            proxy_base_url = None
 
     request_client = HTTPXRequest(
         connect_timeout=30.0,
@@ -549,7 +626,7 @@ def build_bot_app():
     app.add_handler(CommandHandler("anki", anki_command))
     app.add_handler(CommandHandler("latex", latex_command))
     app.add_handler(CallbackQueryHandler(button_callback_handler))
-    app.add_handler(MessageHandler(filters.ATTACHMENT | filters.VOICE | filters.AUDIO, file_handler))
+    app.add_handler(MessageHandler(filters.ATTACHMENT | filters.VOICE | filters.AUDIO | filters.PHOTO, file_handler))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, text_message_handler))
     return app
 

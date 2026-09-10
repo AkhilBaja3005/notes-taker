@@ -74,29 +74,50 @@ def notify_telegram_upload_complete(file_name: str, course_name: str, topic_name
     
     import urllib.request
     for uid in target_users:
+        sent = False
+        payload = json.dumps({
+            "chat_id": uid,
+            "text": text,
+            "parse_mode": "Markdown",
+            "disable_web_page_preview": True
+        }).encode("utf-8")
+
+        # Try configured URL first
         try:
-            payload = json.dumps({
-                "chat_id": uid,
-                "text": text,
-                "parse_mode": "Markdown",
-                "disable_web_page_preview": True
-            }).encode("utf-8")
             req = urllib.request.Request(
                 api_url,
                 data=payload,
                 headers={"Content-Type": "application/json", "Connection": "close"},
                 method="POST"
             )
-            with urllib.request.urlopen(req, timeout=15) as resp:
-                pass
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                if resp.status == 200:
+                    sent = True
         except Exception as e:
-            print(f"[!] Telegram upload notification error: {e}")
+            print(f"[!] Warning: Telegram proxy notification notice: {e}")
+
+        # If proxy failed and was not direct, fallback to direct api.telegram.org
+        if not sent and "api.telegram.org" not in api_url:
+            try:
+                direct_url = f"https://api.telegram.org/bot{token}/sendMessage"
+                direct_req = urllib.request.Request(
+                    direct_url,
+                    data=payload,
+                    headers={"Content-Type": "application/json", "Connection": "close"},
+                    method="POST"
+                )
+                with urllib.request.urlopen(direct_req, timeout=10) as resp:
+                    pass
+            except Exception as e:
+                print(f"[!] Direct Telegram notification fallback notice: {e}")
 
 from core_engine import (
     get_available_courses,
     generate_daily_recap,
     generate_multi_scope_briefing,
     query_exam_syllabus,
+    stream_query_exam_syllabus,
+    touch_cache_heartbeat,
     generate_with_fallback,
     SUPPORTED_MODELS,
     DEFAULT_MODEL
@@ -314,9 +335,18 @@ async def upload_lecture_material(
             except Exception as e:
                 print(f"[!] Warning reading form item '{key}': {e}")
     else:
-        # Direct raw binary body (e.g. Content-Type: audio/m4a, application/pdf, etc.)
+        # Direct raw binary body (e.g. Content-Type: audio/m4a, application/pdf, image/heic, etc.)
         content = await request.body()
-        ext = ".m4a" if "audio" in content_type else (".pdf" if "pdf" in content_type else ".bin")
+        if "audio" in content_type:
+            ext = ".m4a"
+        elif "pdf" in content_type:
+            ext = ".pdf"
+        elif "heic" in content_type or "heif" in content_type:
+            ext = ".heic"
+        elif "image" in content_type:
+            ext = ".jpg"
+        else:
+            ext = ".bin"
         filename = f"ios_upload_{int(time.time())}{ext}"
 
     if not content or len(content) == 0:
@@ -396,6 +426,51 @@ def chat_exam_tutor(req: ChatRequest):
         return {"response": reply}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/chat/stream")
+async def chat_exam_tutor_stream(req: ChatRequest):
+    """
+    Server-Sent Events (SSE) streaming endpoint for real-time exam prep & study guide generation.
+    Slashes time-to-first-token (TTFT) latency for students during long study sessions.
+    """
+    s_date = datetime.date.fromisoformat(req.start_date) if req.start_date else (datetime.date.today() - datetime.timedelta(days=30))
+    e_date = datetime.date.fromisoformat(req.end_date) if req.end_date else datetime.date.today()
+
+    save_chat_message(req.user_id, role="user", message=req.prompt)
+
+    async def event_generator():
+        accumulated = []
+        try:
+            for chunk in stream_query_exam_syllabus(
+                course=req.course,
+                start_date=s_date,
+                end_date=e_date,
+                question=req.prompt,
+                model=req.model
+            ):
+                accumulated.append(chunk)
+                yield f"data: {json.dumps({'chunk': chunk})}\n\n"
+                await asyncio.sleep(0)
+            
+            full_response = "".join(accumulated)
+            save_chat_message(req.user_id, role="assistant", message=full_response)
+            yield f"data: {json.dumps({'done': True})}\n\n"
+        except Exception as err:
+            yield f"data: {json.dumps({'error': str(err)})}\n\n"
+
+    return StreamingResponse(event_generator(), media_type="text/event-stream")
+
+class HeartbeatRequest(BaseModel):
+    cache_name: str
+    extend_seconds: Optional[int] = 1800
+
+@app.post("/api/cache/heartbeat")
+def keep_cache_alive(req: HeartbeatRequest):
+    """
+    Renews TTL for long-running study session context caches.
+    """
+    success = touch_cache_heartbeat(req.cache_name, extend_seconds=req.extend_seconds or 1800)
+    return {"cache_name": req.cache_name, "renewed": success}
 
 @app.get("/api/chat/history")
 def get_chat_history(search: Optional[str] = None):

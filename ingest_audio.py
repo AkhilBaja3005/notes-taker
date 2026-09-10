@@ -26,10 +26,12 @@ DEFAULT_DOC_MODEL = os.environ.get("DOC_MODEL", "gemini-3.1-flash-lite")
 DEFAULT_DENSE_MODEL = os.environ.get("DENSE_MATH_MODEL", "gemini-3.6-flash")
 
 AUDIO_FALLBACKS = [
-    "gemini-3.8-flash",
-    "gemini-3.7-flash",
     "gemini-3.6-flash",
+    "gemini-3.7-flash",
+    "gemini-3.8-flash",
     "gemini-3.5-flash",
+    "gemini-3.1-flash-lite",
+    "gemini-3.5-flash-lite"
 ]
 DOC_FALLBACKS = [
     "gemini-3.1-flash-lite",
@@ -41,7 +43,8 @@ DOC_FALLBACKS = [
 
 SUPPORTED_AUDIO_EXTS = {".m4a", ".mp3", ".wav", ".aac", ".ogg", ".flac", ".wma"}
 SUPPORTED_DOC_EXTS = {".pdf", ".docx", ".doc", ".txt", ".md", ".pptx", ".ppt"}
-SUPPORTED_EXTS = SUPPORTED_AUDIO_EXTS.union(SUPPORTED_DOC_EXTS)
+SUPPORTED_IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".webp", ".heic", ".heif", ".bmp"}
+SUPPORTED_EXTS = SUPPORTED_AUDIO_EXTS.union(SUPPORTED_DOC_EXTS).union(SUPPORTED_IMAGE_EXTS)
 
 MIME_TYPE_MAP = {
     ".m4a": "audio/mp4",
@@ -58,12 +61,21 @@ MIME_TYPE_MAP = {
     ".ppt": "application/vnd.ms-powerpoint",
     ".txt": "text/plain",
     ".md": "text/markdown",
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".webp": "image/webp",
+    ".heic": "image/heic",
+    ".heif": "image/heif",
+    ".bmp": "image/bmp",
 }
 
 def get_optimal_model_for_file(file_path: Path, is_dense_math: bool = False) -> tuple[str, list[str]]:
     suffix = file_path.suffix.lower()
     if suffix in SUPPORTED_AUDIO_EXTS:
         return DEFAULT_AUDIO_MODEL, AUDIO_FALLBACKS
+    elif suffix in SUPPORTED_IMAGE_EXTS:
+        return DEFAULT_DOC_MODEL, DOC_FALLBACKS
     elif is_dense_math:
         return DEFAULT_DENSE_MODEL, AUDIO_FALLBACKS
     else:
@@ -78,6 +90,26 @@ def extract_text_from_docx(file_path: Path) -> str:
         print(f"[!] Warning: docx parsing error: {e}")
         return ""
 
+def convert_heic_to_jpeg(heic_path: Path) -> Path:
+    """
+    Converts Apple HEIC/HEIF photos to standard high-quality JPEG for 100% reliable
+    multimodal processing across Gemini File API and local image preview tools.
+    """
+    try:
+        import pillow_heif
+        from PIL import Image
+        pillow_heif.register_heif_opener()
+        
+        jpeg_path = heic_path.with_suffix(".jpg")
+        with Image.open(heic_path) as img:
+            rgb_img = img.convert("RGB")
+            rgb_img.save(jpeg_path, "JPEG", quality=95)
+        print(f"[*] Successfully converted Apple HEIC image {heic_path.name} -> {jpeg_path.name}")
+        return jpeg_path
+    except Exception as e:
+        print(f"[!] Notice: HEIC auto-conversion error ({e}). Proceeding with original file.")
+        return heic_path
+
 def process_file(file_path_str: str, course_name: str, topic_name: str, lecture_date: str = None, model: str = None, is_dense_math: bool = False) -> Path:
     if lecture_date is None:
         lecture_date = datetime.date.today().isoformat()
@@ -85,6 +117,10 @@ def process_file(file_path_str: str, course_name: str, topic_name: str, lecture_
     file_path = Path(file_path_str)
     if not file_path.exists():
         raise FileNotFoundError(f"File not found: {file_path_str}")
+
+    # Convert Apple HEIC/HEIF to JPEG immediately so all downstream vision and vector indexing succeed
+    if file_path.suffix.lower() in [".heic", ".heif"]:
+        file_path = convert_heic_to_jpeg(file_path)
 
     # Sanitize unicode characters in filename (e.g. iOS narrow no-break space \u202f in timestamped recordings)
     clean_stem = "".join([c if ord(c) < 128 and (c.isalnum() or c in ("-", "_", ".", " ")) else "_" for c in file_path.stem]).strip()
@@ -98,6 +134,7 @@ def process_file(file_path_str: str, course_name: str, topic_name: str, lecture_
 
     suffix = file_path.suffix.lower()
     is_audio = suffix in SUPPORTED_AUDIO_EXTS
+    is_image = suffix in SUPPORTED_IMAGE_EXTS
 
     # 1. Automatic Audio Pre-Optimization
     actual_upload_path = file_path
@@ -109,7 +146,7 @@ def process_file(file_path_str: str, course_name: str, topic_name: str, lecture_
         except Exception as e:
             print(f"[!] Audio optimizer notice: {e}")
 
-    content_type_label = "audio recording" if is_audio else ("dense mathematical document" if is_dense_math else "academic slides/document")
+    content_type_label = "audio recording" if is_audio else ("handwritten note or whiteboard photo" if is_image else ("dense mathematical document" if is_dense_math else "academic slides/document"))
 
     if model is None:
         selected_model, fallback_pool = get_optimal_model_for_file(file_path, is_dense_math)
@@ -127,10 +164,17 @@ def process_file(file_path_str: str, course_name: str, topic_name: str, lecture_
     - If the topic provided above is "AUTO_DETECT_TOPIC" or generic (e.g. "Lecture Note", "Audio Recording", or empty), automatically extract a concise, precise, 2-to-6 word academic title from the central subject of the lecture (e.g., "Lagrangian Duality & KKT", "Singular Value Decomposition", "Backpropagation & Gradient Descent").
     - Start your markdown notes with `# {course_name}: <Extracted Academic Topic>`.
 
-    [CRITICAL GROUNDING & SILENCE DETECTION]:
-    - Ground your notes STRICTLY on the actual content, words, or document text provided.
-    - If the recording is completely silent, unintelligible noise, ambient background with no speech, or a brief silent mic check: DO NOT hallucinate or fabricate theoretical notes. Instead, output a concise diagnostic notice explaining that no intelligible speech was detected in the recording.
+    [CRITICAL GROUNDING & SILENCE / BLANK DETECTION]:
+    - Ground your notes STRICTLY on the actual content, words, diagrams, or document text provided.
+    - If the recording is completely silent/unintelligible, or an image is completely blank/unrelated, output a concise diagnostic notice explaining that no intelligible content was detected.
     - Do NOT invent theorems, formulas, or full lectures that were not spoken or written in the material.
+
+    [MULTIMODAL VISION & HANDWRITING TRANSCRIBING INSTRUCTIONS]:
+    - If the input is an image (e.g., photo of a blackboard, whiteboard, paper notebook, or diagram):
+      1. Carefully transcribe all handwritten text, annotations, and margin notes.
+      2. Convert all handwritten mathematical equations, symbols, matrices, and derivations into rigorous, standard KaTeX ($...$ for inline, $$...$$ for display math).
+      3. For any diagrams, flowcharts, graphs, state machines, or circuit diagrams drawn on the board or page, convert them into clean Obsidian Mermaid diagrams (` ```mermaid ... ``` `).
+      4. Clarify any ambiguous or rushed handwriting using domain context.
 
     [ACOUSTIC ADAPTATION & ACCENT PRIMING INSTRUCTIONS]:
     - Normalize diverse international accents and room reverberation when speech is present.
