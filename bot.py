@@ -719,8 +719,19 @@ def main():
         print("[!] TELEGRAM_BOT_TOKEN not configured.")
         return
 
-    print("[*] Academic Assistant Telegram Bot polling started!")
+    print("[*] Academic Assistant Telegram Bot polling starting...")
     try:
+        # Clear any residual conflicting webhooks so long-polling always connects cleanly
+        import asyncio
+        async def clear_conflicts():
+            try:
+                await app.bot.delete_webhook(drop_pending_updates=False)
+                print("[+] Conflicting webhooks verified and cleared.")
+            except Exception as e:
+                print(f"[*] Webhook check notice: {e}")
+        asyncio.run(clear_conflicts())
+
+        print("[*] Academic Assistant Telegram Bot polling active!")
         app.run_polling(
             drop_pending_updates=False,
             bootstrap_retries=-1,
