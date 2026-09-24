@@ -582,11 +582,17 @@ def get_flashcards(course: Optional[str] = None):
                 continue
             if course and course not in f.name:
                 continue
-            text = f.read_text(encoding="utf-8", errors="ignore")
-            parsed = parse_flashcards_from_markdown(text)
+            try:
+                post = frontmatter.load(f)
+                note_course = str(post.get("course", course or "General")).replace("[[", "").replace("]]", "").strip()
+                parsed = parse_flashcards_from_markdown(post.content)
+            except Exception:
+                note_course = course or "General"
+                parsed = parse_flashcards_from_markdown(f.read_text(encoding="utf-8", errors="ignore"))
+
             for q, a in parsed:
                 cards.append({
-                    "course": course or "General",
+                    "course": note_course,
                     "file": f.name,
                     "question": q,
                     "answer": a

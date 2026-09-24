@@ -27,18 +27,20 @@ DEFAULT_DENSE_MODEL = os.environ.get("DENSE_MATH_MODEL", "gemini-3.6-flash")
 
 AUDIO_FALLBACKS = [
     "gemini-3.6-flash",
-    "gemini-3.7-flash",
+    "gemini-3-flash-preview",
+    "gemini-3.1-flash-lite",
+    "gemini-3.5-flash-lite",
     "gemini-3.8-flash",
     "gemini-3.5-flash",
-    "gemini-3.1-flash-lite",
-    "gemini-3.5-flash-lite"
+    "gemini-3.7-flash"
 ]
 DOC_FALLBACKS = [
     "gemini-3.1-flash-lite",
-    "gemini-3.5-flash-lite",
     "gemini-3.6-flash",
-    "gemini-3.5-flash",
-    "gemini-3.8-flash"
+    "gemini-3-flash-preview",
+    "gemini-3.5-flash-lite",
+    "gemini-3.8-flash",
+    "gemini-3.5-flash"
 ]
 
 SUPPORTED_AUDIO_EXTS = {".m4a", ".mp3", ".wav", ".aac", ".ogg", ".flac", ".wma"}
@@ -243,24 +245,23 @@ def process_file(file_path_str: str, course_name: str, topic_name: str, lecture_
     response = None
     last_err = None
 
-    # Dynamic Thinking Budget: 0 for fast memos, 2048/4096 for deep math/derivations
-    thinking_budget = 4096 if is_dense_math else 0
-    config_args = {}
-    if "flash" in selected_model.lower() or "gemini-2.5" in selected_model or "gemini-3" in selected_model:
-        try:
-            config_args["thinking_config"] = types.ThinkingConfig(thinking_budget=thinking_budget)
-        except Exception:
-            pass
-
     for candidate in candidate_models:
         try:
             print(f"[*] Processing material through Gemini ({candidate}) [Thinking Budget: {thinking_budget}]...")
+            # gemini-3.5-flash-lite requires thinking_budget >= 1 or no thinking_config
+            cfg = None
+            if thinking_budget > 0:
+                try:
+                    cfg = types.GenerateContentConfig(thinking_config=types.ThinkingConfig(thinking_budget=thinking_budget))
+                except Exception:
+                    cfg = None
+
             with contextlib.redirect_stderr(io.StringIO()):
-                if config_args:
+                if cfg:
                     response = client.models.generate_content(
                         model=candidate,
                         contents=contents_payload,
-                        config=types.GenerateContentConfig(**config_args)
+                        config=cfg
                     )
                 else:
                     response = client.models.generate_content(
@@ -270,6 +271,18 @@ def process_file(file_path_str: str, course_name: str, topic_name: str, lecture_
             selected_model = candidate
             break
         except Exception as err:
+            # If rejected due to thinking budget (e.g. 400 INVALID_ARGUMENT), retry candidate once without thinking config
+            if "INVALID_ARGUMENT" in str(err) or "thinking" in str(err).lower():
+                try:
+                    with contextlib.redirect_stderr(io.StringIO()):
+                        response = client.models.generate_content(
+                            model=candidate,
+                            contents=contents_payload
+                        )
+                    selected_model = candidate
+                    break
+                except Exception as inner_err:
+                    err = inner_err
             print(f"[!] Warning: {candidate} error: {err}. Retrying with next model...")
             last_err = err
 

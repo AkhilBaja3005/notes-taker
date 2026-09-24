@@ -107,17 +107,32 @@ def extract_structured_flashcards_from_text(markdown_text: str, course: str = "G
     return parse_flashcards_from_markdown(markdown_text)
 
 def parse_flashcards_from_markdown(markdown_text: str) -> list[tuple[str, str]]:
-    """Extracts (Question, Answer) pairs from Section 4 of note markdown via regex fallback."""
+    """
+    Extracts individual (Question, Answer) pairs from Section 4 of note markdown.
+    Supports:
+    - Bulleted Q&A: - **Q1: Question?** \n  - **A1:** Answer
+    - Unbulleted bold: **Q1: Question?** \n **A1:** Answer
+    - Plain format: Q1: Question? \n A1: Answer
+    """
     cards = []
-    qa_pattern = r"(?:\*\*Q\d*:\s*|\*\*Question\d*:\s*|Q\d*:\s*)(.*?)(?:\*\*|\n)(?:\s*\*\*A\d*:\s*|\s*\*\*Answer\d*:\s*|\s*A\d*:\s*)(.*?)(?=\n\s*(?:\*\*Q|Q\d*:|##|\Z))"
-    matches = re.findall(qa_pattern, markdown_text, flags=re.DOTALL)
+    if not markdown_text:
+        return cards
+
+    # Locate Section 4 if present to avoid false positives elsewhere
+    sec4_match = re.search(r"##\s*4\.\s*Key Concept Q&A Flashcards.*?(?=\n##\s*5\.|\Z)", markdown_text, flags=re.DOTALL | re.IGNORECASE)
+    search_scope = sec4_match.group(0) if sec4_match else markdown_text
+
+    # Match Q&A blocks with colon either inside or outside bold asterisks:
+    # e.g. **Q1:** or **Q1**: or Q1:
+    qa_pattern = r'(?:^|\n)\s*(?:[-*]\s*)?\*{0,2}Q(?:\d+|uestion\s*\d*)?(?:\*{0,2}\s*:\s*\*{0,2}|\s*:\s*\*{0,2})(.*?)(?:\*{0,2}\s*(?:\n|\Z))\s*(?:[-*]\s*)?\*{0,2}A(?:\d+|nswer\s*\d*)?(?:\*{0,2}\s*:\s*\*{0,2}|\s*:\s*\*{0,2})(.*?)(?=(?:\n\s*(?:[-*]\s*)?\*{0,2}Q(?:\d+|uestion)|\n\s*##|\Z))'
+    matches = re.findall(qa_pattern, search_scope, flags=re.DOTALL | re.IGNORECASE)
 
     for q, a in matches:
-        clean_q = q.strip().strip("*").strip()
-        clean_a = a.strip().strip("*").strip()
+        clean_q = re.sub(r'^\s*[-*]+\s*', '', q).strip().strip('*').strip()
+        clean_a = re.sub(r'^\s*[-*]+\s*', '', a).strip().strip('*').strip()
         if clean_q and clean_a:
             cards.append((clean_q, clean_a))
-            
+
     return cards
 
 def generate_anki_deck_from_file(file_path: Path) -> Path:
