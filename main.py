@@ -166,9 +166,10 @@ def startup_vault_hydration():
     lectures_dir = Path(os.environ.get("LECTURES_DIR", "./lectures"))
     lectures_dir.mkdir(parents=True, exist_ok=True)
     
-    # If /data is mounted and empty, copy any existing local notes over
+    # If /data is mounted and empty, copy local sample notes ONLY if no remote Git repo is configured
     local_sample_dir = Path("./lectures")
-    if str(lectures_dir) != str(local_sample_dir) and local_sample_dir.exists():
+    repo_url = os.environ.get("GIT_VAULT_REPO_URL")
+    if not repo_url and str(lectures_dir) != str(local_sample_dir) and local_sample_dir.exists():
         for f in local_sample_dir.glob("*.md"):
             dest = lectures_dir / f.name
             if not dest.exists():
@@ -177,7 +178,6 @@ def startup_vault_hydration():
                 except Exception:
                     pass
 
-    repo_url = os.environ.get("GIT_VAULT_REPO_URL")
     if repo_url:
         print("[*] Hydrating notes from Obsidian remote repository...")
         try:

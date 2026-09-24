@@ -158,6 +158,25 @@ def clear_user_chat_history(user_id: int):
     conn.commit()
     conn.close()
 
+def reset_database(clear_chats: bool = True):
+    """
+    Clears all lecture metadata, FTS full-text search indexes, and optionally chat history.
+    Preserves app_settings so user configurations remain intact.
+    """
+    init_db()
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM lecture_metadata;")
+    try:
+        cursor.execute("DELETE FROM lecture_fts;")
+    except Exception:
+        pass
+    if clear_chats:
+        cursor.execute("DELETE FROM chat_history;")
+    conn.commit()
+    conn.close()
+    print("[+] SQLite metadata database and FTS indexes successfully reset!")
+
 def index_lecture_file(file_path: Path):
     if file_path.name.endswith("_MOC.md"):
         return

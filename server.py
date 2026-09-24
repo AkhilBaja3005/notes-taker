@@ -124,7 +124,8 @@ from core_engine import (
 )
 from ingest_audio import process_file
 from anki_exporter import generate_anki_deck_for_course, parse_flashcards_from_markdown
-from vector_store import semantic_search_notes, hybrid_search_notes
+from git_sync import reset_obsidian_git_vault
+from vector_store import semantic_search_notes, hybrid_search_notes, reset_vector_db
 from metadata_db import (
     query_courses,
     query_topics,
@@ -133,7 +134,8 @@ from metadata_db import (
     get_setting,
     set_setting,
     clear_user_chat_history,
-    query_lectures_by_date
+    query_lectures_by_date,
+    reset_database
 )
 from cheatsheet_generator import generate_course_cheatsheet
 from bot import process_telegram_webhook
@@ -601,6 +603,60 @@ def download_anki_deck(course: str):
         filename=deck_path.name,
         media_type="application/octet-stream"
     )
+
+# ----------------- Vault & Storage Reset -----------------
+class ResetRequest(BaseModel):
+    confirm: bool = False
+    clear_chats: Optional[bool] = True
+    reset_git: Optional[bool] = True
+
+@app.post("/api/vault/reset", dependencies=[Depends(verify_api_key)])
+def reset_entire_vault(req: ResetRequest):
+    """
+    Completely purges all lecture markdown notes, Anki decks, ChromaDB vector embeddings,
+    and SQLite metadata tables, then pushes the clean state to the Obsidian Git repository.
+    """
+    if not req.confirm:
+        raise HTTPException(status_code=400, detail="Must set confirm=True to execute full reset.")
+
+    details = []
+
+    # 1. Reset Obsidian Git repository & remove all local markdown notes
+    if req.reset_git:
+        ok_git, msg_git = reset_obsidian_git_vault()
+        details.append(f"Git Vault: {msg_git}")
+    else:
+        # Just purge local files in LECTURES_DIR
+        removed = 0
+        if LECTURES_DIR.exists():
+            for item in LECTURES_DIR.iterdir():
+                if item.name in [".git", ".gitignore", ".gitkeep"]:
+                    continue
+                try:
+                    if item.is_file():
+                        item.unlink()
+                        removed += 1
+                    elif item.is_dir():
+                        import shutil
+                        shutil.rmtree(item)
+                        removed += 1
+                except Exception as e:
+                    print(f"[!] Warning deleting {item}: {e}")
+        details.append(f"Local files: {removed} purged")
+
+    # 2. Reset ChromaDB vector store
+    ok_vec = reset_vector_db()
+    details.append(f"Vector DB: {'Reset OK' if ok_vec else 'Reset notice'}")
+
+    # 3. Reset SQLite metadata & FTS5 full-text indexes
+    reset_database(clear_chats=bool(req.clear_chats))
+    details.append("SQLite Metadata & FTS5: Reset OK")
+
+    return {
+        "status": "success",
+        "message": "Vault and persistent storage successfully reset.",
+        "details": details
+    }
 
 # ----------------- Telegram Webhook Gateway -----------------
 @app.post("/telegram_webhook")

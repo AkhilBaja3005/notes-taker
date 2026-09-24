@@ -102,6 +102,54 @@ def sync_notes_to_git(commit_message: str = "Add lecture notes [Automated Sync]"
     
     return True, "Committed locally"
 
+def reset_obsidian_git_vault() -> tuple[bool, str]:
+    """
+    Completely resets the Obsidian Git repository by removing all markdown notes,
+    MOCs, and Anki decks, then committing and pushing the clean state to remote.
+    """
+    if not ENABLE_GIT_SYNC:
+        return False, "Git sync disabled"
+
+    init_vault_git()
+    print(f"[*] Resetting Obsidian vault in {LECTURES_DIR}...")
+
+    # Delete all markdown files and Anki decks in LECTURES_DIR, keeping only .git, .gitignore, and .gitkeep
+    removed = 0
+    for item in LECTURES_DIR.iterdir():
+        if item.name in [".git", ".gitignore", ".gitkeep"]:
+            continue
+        try:
+            if item.is_file():
+                item.unlink()
+                removed += 1
+            elif item.is_dir():
+                import shutil
+                shutil.rmtree(item)
+                removed += 1
+        except Exception as e:
+            print(f"[!] Warning deleting {item}: {e}")
+
+    # Ensure .gitkeep exists so the empty directory is tracked
+    gitkeep = LECTURES_DIR / ".gitkeep"
+    if not gitkeep.exists():
+        gitkeep.touch()
+
+    # Stage all deletions
+    run_git_cmd(["git", "add", "-A"], LECTURES_DIR)
+    ok_commit, out_commit = run_git_cmd(["git", "commit", "-m", "Reset vault: purge all lecture notes and decks [Automated Reset]"], LECTURES_DIR)
+
+    repo_url = os.environ.get("GIT_VAULT_REPO_URL", "").strip()
+    if repo_url:
+        ok_push, out_push = run_git_cmd(["git", "push", "-u", "origin", GIT_BRANCH], LECTURES_DIR)
+        if ok_push:
+            print(f"[+] Successfully pushed reset state to Obsidian Git repo on '{GIT_BRANCH}'!")
+            return True, f"Vault reset complete. {removed} items purged and pushed to GitHub."
+        else:
+            print(f"[!] Warning: Remote push failed ({out_push}). Local commit saved.")
+            return False, f"Committed locally but remote push failed: {out_push}"
+
+    return True, f"Vault reset complete locally. {removed} items purged."
+
 if __name__ == "__main__":
     init_vault_git()
     success, msg = sync_notes_to_git("Initial repository sync")

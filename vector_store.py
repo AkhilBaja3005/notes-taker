@@ -69,6 +69,23 @@ def get_collection():
 # Initialize on module load, but handle failure gracefully
 collection = get_collection()
 
+def reset_vector_db():
+    """Wipes all vector embeddings and recreates a clean Chroma collection."""
+    global _chroma_client, _collection, collection
+    try:
+        if _chroma_client is not None:
+            try:
+                _chroma_client.delete_collection("academic_lectures")
+            except Exception:
+                pass
+        _collection = None
+        collection = get_collection()
+        print("[+] ChromaDB vector store successfully reset!")
+        return True
+    except Exception as e:
+        print(f"[!] Warning resetting ChromaDB: {e}")
+        return False
+
 def chunk_lecture_note(file_path: Path) -> list[dict]:
     """Splits a structured lecture note into semantic chunks with metadata."""
     if file_path.name.endswith("_MOC.md"):
